@@ -7,7 +7,7 @@ this up on each major agent platform.
 
 The pattern is the same everywhere:
 
-1. Give the agent the repo URL: `https://github.com/summitsingh/jobpilot`
+1. Give the agent the repo URL: `https://github.com/summitsingh/ai-job-pilot`
 2. Tell it to read `SKILL.md` and follow it.
 3. Provide your `facts.json` (or fill in `facts.example.json`).
 4. The agent handles the browser, the model calls, and the fill. You
@@ -22,7 +22,7 @@ Claude Code reads `SKILL.md` natively as a skill file.
 
 ```bash
 # In your project directory
-git clone https://github.com/summitsingh/jobpilot.git
+git clone https://github.com/summitsingh/ai-job-pilot.git
 cd jobpilot
 cp facts.example.json facts.json
 # Edit facts.json with your real details
@@ -49,7 +49,7 @@ follow the Prerequisites section of `SKILL.md`.
 Codex works from the repo directory. Clone jobpilot and point Codex at it:
 
 ```bash
-git clone https://github.com/summitsingh/jobpilot.git
+git clone https://github.com/summitsingh/ai-job-pilot.git
 cd jobpilot
 cp facts.example.json facts.json
 # Edit facts.json with your real details
@@ -93,7 +93,7 @@ conversation and say:
 Muse runs with a real computer: shell, browser, and filesystem. Point it
 at the repo:
 
-> Clone https://github.com/summitsingh/jobpilot and read SKILL.md.
+> Clone https://github.com/summitsingh/ai-job-pilot and read SKILL.md.
 > Apply to <posting URL> with my facts at <path to facts.json>.
 > Dry-run first and show me the screenshot before submitting.
 

@@ -1,4 +1,4 @@
-# jobpilot
+# ai-job-pilot
 
 Deterministic, low-token autofill for ATS job application forms (Greenhouse,
 Ashby, Lever, Workable). Fill a form with ~50x fewer LLM calls and ~99%
@@ -19,13 +19,13 @@ Real verification numbers from production use:
 ## Install
 
 ```bash
-git clone https://github.com/summitsingh/jobpilot.git
+git clone https://github.com/summitsingh/ai-job-pilot.git
 cd jobpilot
 pip install .
 ```
 
-This provides three console scripts: `jobpilot` (single application),
-`jobpilot-batch` (queue runner), and `jobpilot-code-gate` (email code gate
+This provides three console scripts: `ai-job-pilot` (single application),
+`ai-job-pilot-batch` (queue runner), and `ai-job-pilot-code-gate` (email code gate
 handler). Or skip the install and run the scripts directly with Python 3.9+;
 the only dependency is the standard library.
 
@@ -59,7 +59,7 @@ cp facts.example.json facts.json   # then fill in YOUR details
 # serve a local model (LM Studio default http://127.0.0.1:1234),
 # or point JOBPILOT_MODEL_URL at any OpenAI-compatible endpoint
 export JOBPILOT_SSH_HOST="user@browser-host"   # host running debug Chrome
-jobpilot --url <greenhouse|ashby|lever|workable posting URL> \
+ai-job-pilot --url <greenhouse|ashby|lever|workable posting URL> \
     --port 9226 --no-submit
 ```
 
@@ -72,7 +72,7 @@ fields_filled, fields_skipped, notes}`.
 jobpilot is built to be driven by an agent. Point your agent at this repo
 and tell it to read `SKILL.md`:
 
-> Clone https://github.com/summitsingh/jobpilot and read SKILL.md.
+> Clone https://github.com/summitsingh/ai-job-pilot and read SKILL.md.
 > Apply to <posting URL> with my facts. Dry-run first, show me the result
 > before submitting.
 
@@ -95,7 +95,7 @@ facts.json. Dry-run first."
 **Codex** works from the repo directory:
 
 ```bash
-git clone https://github.com/summitsingh/jobpilot.git
+git clone https://github.com/summitsingh/ai-job-pilot.git
 cd jobpilot && cp facts.example.json facts.json  # fill in your details
 codex
 ```
@@ -111,7 +111,7 @@ you and pasting results back.
 
 **Muse** runs the full loop itself (shell, browser, filesystem):
 
-> Clone https://github.com/summitsingh/jobpilot and read SKILL.md.
+> Clone https://github.com/summitsingh/ai-job-pilot and read SKILL.md.
 > Apply to <posting URL> with my facts at <path to facts.json>.
 
 Submit approvals and Greenhouse email codes come to you as approval
@@ -131,10 +131,10 @@ Full details: [`docs/agent-setup.md`](docs/agent-setup.md).
 
 ## Batch mode
 
-`jobpilot-batch` runs a queue of posting URLs one at a time:
+`ai-job-pilot-batch` runs a queue of posting URLs one at a time:
 
 ```bash
-jobpilot-batch --queue examples/queue.txt --port 9226 --dedup \
+ai-job-pilot-batch --queue examples/queue.txt --port 9226 --dedup \
     --resume-map examples/resume-map.json
 ```
 
@@ -148,7 +148,7 @@ jobpilot-batch --queue examples/queue.txt --port 9226 --dedup \
 ## Greenhouse code gate
 
 Greenhouse shows an 8-character email verification code on submit
-(per-application; codes expire quickly). `jobpilot-code-gate` detects the
+(per-application; codes expire quickly). `ai-job-pilot-code-gate` detects the
 gate, prompts for the code, enters one character per box, submits, and
 verifies the confirmation page. Codes stay human-in-the-loop; they are
 never guessed, stored, or bypassed. See `AGENTS.md` for the full protocol.

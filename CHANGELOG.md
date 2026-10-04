@@ -13,7 +13,7 @@ All notable changes to jobpilot are documented here. The format follows
   application only (never modifies your facts file).
 - `JOBPILOT_RESUME` environment override, honored by `ats_fill.py`.
 - Packaging (`pyproject.toml`): `pip install .` provides the
-  `jobpilot`, `jobpilot-batch`, and `jobpilot-code-gate` console scripts.
+  `ai-job-pilot`, `ai-job-pilot-batch`, and `ai-job-pilot-code-gate` console scripts.
 - GitHub issue templates: bug report (with ATS type, schema snippet, logs)
   and new-ATS request.
 - `examples/queue.txt` and `examples/resume-map.json`.

@@ -25,7 +25,7 @@ deterministic.
 
 1. Clone the repo and install (stdlib only, no dependencies):
    ```bash
-   git clone https://github.com/summitsingh/jobpilot.git
+   git clone https://github.com/summitsingh/ai-job-pilot.git
    cd jobpilot
    pip install .
    ```

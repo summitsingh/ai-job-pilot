@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jobpilot"
+name = "ai-job-pilot"
 version = "0.1.0"
 description = "Deterministic, low-token autofill for ATS job application forms"
 readme = "README.md"
@@ -18,13 +18,13 @@ classifiers = [
 ]
 
 [project.scripts]
-jobpilot = "ats_fill:main"
-jobpilot-batch = "batch_apply:main"
-jobpilot-code-gate = "code_gate:main"
+ai-job-pilot = "ats_fill:main"
+ai-job-pilot-batch = "batch_apply:main"
+ai-job-pilot-code-gate = "code_gate:main"
 
 [project.urls]
-Homepage = "https://github.com/summitsingh/jobpilot"
-Repository = "https://github.com/summitsingh/jobpilot"
+Homepage = "https://github.com/summitsingh/ai-job-pilot"
+Repository = "https://github.com/summitsingh/ai-job-pilot"
 
 [tool.setuptools]
 py-modules = [
