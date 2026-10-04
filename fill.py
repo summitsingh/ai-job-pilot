@@ -607,10 +607,15 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
             if not ok and pf["applied"]:
                 base = os.path.basename(pf["expected"] or "")
                 if base:
-                    t = cdp(port, "text", timeout=60).get("text", "")
-                    ok = base.lower() in t.lower()
-                    if ok:
-                        pf["actual"] = base
+                    # Retry a few times: the filename text can lag the CDP attach
+                    import time as _t
+                    for _ in range(3):
+                        t = cdp(port, "text", timeout=60).get("text", "")
+                        if base.lower() in t.lower():
+                            ok = True
+                            pf["actual"] = base
+                            break
+                        _t.sleep(1.5)
         elif pf["action"] == "location":
             # Location autocompletes canonicalize the typed value
             # ("Austin, Texas, United States" -> "Austin, TX, USA"); verify

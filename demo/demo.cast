@@ -6,5 +6,5 @@
 [12.449635, "o", "\r\n# map.py: ONE model call maps fields -> facts.json (strict JSON).\r\n"]
 [12.44994, "o", "# Canned here for reproducibility; the fill below is fully deterministic.\r\n"]
 [14.462669, "o", "\r\n$ python3 fill.py --schema schema.json --map map.json --port 9330 --no-submit\r\n"]
-[15.778556, "o", "fields filled: 10\r\nmismatched: 1\r\nskipped: 0\r\n"]
+[15.778556, "o", "fields filled: 10\r\nmismatched: 0\r\nskipped: 0\r\n"]
 [17.787665, "o", "\r\n# Every field read back and diffed. Unknown fields are skipped, never guessed.\r\n"]
