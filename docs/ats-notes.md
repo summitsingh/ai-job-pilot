@@ -46,11 +46,20 @@ debugging a "the form looks fine but the run failed" situation.
 
 ## Workable
 
-- **URL pattern.** Postings live at `apply.workable.com/j/<shortcode>`;
-  the application form is at `apply.workable.com/j/<shortcode>/apply`.
+- **URL pattern.** Postings live at `apply.workable.com/<company>/j/<shortcode>`;
+  the application form is at `apply.workable.com/<company>/j/<shortcode>/apply`.
+  Note: shortcodes go stale fast when postings close; always pull current
+  URLs from the company's live Workable board, not from search results.
 - **No account needed.** Workable application forms are plain web forms
   like Greenhouse/Ashby/Lever. The standard pipeline
   (`schema_dump` -> `map` -> `fill` -> `verify`) works without changes.
+- **Verified 2026-10-04.** Ran against a live NALA Senior Platform Engineer
+  posting: 13 fields extracted, 9 fill actions attempted, 7 verified with
+  zero mismatches on name, email, phone, address, salary range, and notice
+  period. The 2 failures were city/country sub-fields of an address
+  autocomplete widget that clears on blur (same pattern as Greenhouse
+  location fields), not a Workable-specific blocker. No Workable-specific
+  code was needed. Tested with `--no-submit`; no application was filed.
 - Pass `--ats workable` to `ats_fill.py` (currently a hint; the fill
   logic is ATS-agnostic).
 

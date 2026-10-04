@@ -11,6 +11,8 @@ Real verification numbers from production use:
 
 - **Greenhouse:** 42/42 fields verified on live forms, zero mismatches
 - **Ashby + Lever:** 82/82 fields verified across 8 real forms, zero model calls
+- **Workable:** 7/9 fill actions verified on a live form (2026-10-04), zero
+  Workable-specific code; 2 failures were address-autocomplete sub-fields
 - **Offline tests:** 18/18 passing, no browser, model, or network required
 - **Live submits:** confirmed via `/confirmation` URL + "Thank you for applying" page text
 
