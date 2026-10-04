@@ -1,9 +1,9 @@
 # jobpilot
 
 Deterministic, low-token autofill for ATS job application forms (Greenhouse,
-Ashby, Lever). Fill a form with ~50x fewer LLM calls and ~99% fewer tokens
-than a naive agent loop, by doing everything deterministic except the one
-step that actually needs a model.
+Ashby, Lever, Workable). Fill a form with ~50x fewer LLM calls and ~99%
+fewer tokens than a naive agent loop, by doing everything deterministic
+except the one step that actually needs a model.
 
 ## Proven on
 
@@ -57,7 +57,7 @@ cp facts.example.json facts.json   # then fill in YOUR details
 # serve a local model (LM Studio default http://127.0.0.1:1234),
 # or point JOBPILOT_MODEL_URL at any OpenAI-compatible endpoint
 export JOBPILOT_SSH_HOST="user@browser-host"   # host running debug Chrome
-jobpilot --url <greenhouse|ashby|lever posting URL> \
+jobpilot --url <greenhouse|ashby|lever|workable posting URL> \
     --port 9226 --no-submit
 ```
 

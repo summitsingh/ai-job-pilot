@@ -2,7 +2,7 @@
 """Orchestrator: dump schema -> map -> fill -> (submit) -> verify.
 
 Usage:
-  ats_fill.py --url <application URL> --port 9226 [--ats greenhouse|ashby|lever]
+  ats_fill.py --url <application URL> --port 9226 [--ats greenhouse|ashby|lever|workable]
               [--no-submit] [--workdir /tmp/harness/run1] [--force]
 
 Emits result JSON to stdout and <workdir>/result.json:
@@ -52,7 +52,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", required=True)
     ap.add_argument("--port", type=int, default=9226)
-    ap.add_argument("--ats", default="greenhouse")
+    ap.add_argument("--ats", default="greenhouse",
+                    choices=["greenhouse", "ashby", "lever", "workable"],
+                    help="ATS hint (the fill pipeline is ATS-agnostic)")
     ap.add_argument("--no-submit", action="store_true")
     ap.add_argument("--workdir", default="")
     ap.add_argument("--force", action="store_true")

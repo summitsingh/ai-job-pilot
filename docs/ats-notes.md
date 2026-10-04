@@ -44,6 +44,27 @@ debugging a "the form looks fine but the run failed" situation.
 - Otherwise Lever forms are the simplest of the three: standard
   inputs, predictable submit buttons.
 
+## Workable
+
+- **URL pattern.** Postings live at `apply.workable.com/j/<shortcode>`;
+  the application form is at `apply.workable.com/j/<shortcode>/apply`.
+- **No account needed.** Workable application forms are plain web forms
+  like Greenhouse/Ashby/Lever. The standard pipeline
+  (`schema_dump` -> `map` -> `fill` -> `verify`) works without changes.
+- Pass `--ats workable` to `ats_fill.py` (currently a hint; the fill
+  logic is ATS-agnostic).
+
+## Explicitly out of scope
+
+- **iCIMS, Taleo, Workday, SuccessFactors.** These require creating an
+  account with a password before you can apply, and use multi-page
+  flows (iCIMS uses nested iframes). Automated account creation is an
+  explicit non-goal: it creates credentials the user must manage and
+  violates the "no invented facts" rule at the identity layer. If you
+  need these, apply manually.
+- **LinkedIn Easy Apply.** Excluded deliberately (account automation
+  risk). See `CONTRIBUTING.md`.
+
 ## General
 
 - **Readback diff.** After every fill, the harness reads each field
