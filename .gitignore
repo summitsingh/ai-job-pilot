@@ -1,0 +1,16 @@
+# Applicant's private data - never commit
+facts.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Run artifacts
+*.log
+result.json
+fill-result.json
+/tmp/
+shots/
