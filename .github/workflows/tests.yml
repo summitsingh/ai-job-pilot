@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: syntax check
+        run: python3 -m py_compile *.py
+      - name: offline unit tests (no browser, no model, no network)
+        run: python3 -m unittest test_offline -v
+      - name: facts.json must stay untracked
+        run: |
+          if [ -f facts.json ]; then
+            echo "facts.json is present; it must never be committed" >&2
+            exit 1
+          fi

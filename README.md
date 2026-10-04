@@ -83,6 +83,10 @@ posture (willingness defaults, disclosure answers, demographics).
 ## Layout
 
 - `ats_fill.py` - orchestrator: dump -> map -> fill -> verify -> submit
+- `batch_apply.py` - run a queue of posting URLs one at a time, with a
+  per-application confirm prompt and a JSONL log
+- `code_gate.py` - handle the Greenhouse email verification gate
+  (prompts for the code, enters it, verifies confirmation)
 - `extract.py`, `schema_dump.py` - form introspection
 - `map.py` - model-based field-to-fact mapping (strict JSON, one call)
 - `hard_patterns.py`, `templates.py` - deterministic screening answers
@@ -91,18 +95,22 @@ posture (willingness defaults, disclosure answers, demographics).
 - `cdp_driver.py`, `cdp_direct.py`, `common.py` - CDP transport
 - `model.py` - local model client with fallback chain
 - `indeed_dump.py`, `indeed_fill.py` - Indeed application lane
-- `test_*.py` - pattern and template tests
+- `test_offline.py` - offline unit tests (no browser/model needed);
+  `test_*.py` are live-browser integration tests (`--no-submit` only)
+- `docs/ats-notes.md` - Greenhouse/Ashby/Lever quirks learned in production
 
 ## Notes
 
 - If you are an AI agent, read `AGENTS.md` first. It documents the full
   run procedure, the Greenhouse code-gate protocol, and the safety
   invariants.
-- Greenhouse shows an email verification code on submit; the runner pauses
-  for it and resumes when you provide the code.
+- Greenhouse shows an email verification code on submit; `code_gate.py`
+  walks the operator through it (or see `AGENTS.md` for the protocol).
 - CAPTCHA/reCAPTCHA detection stops the run instead of attempting a solve.
 - Some employers are blocklisted from automation in the default config;
   see `modal_common.py`.
+- CI runs the offline test suite on every push. See `CONTRIBUTING.md`
+  before submitting a pull request.
 
 ## License
 

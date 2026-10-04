@@ -112,7 +112,13 @@ def run_indeed_apply(port, job_url, workdir, do_submit=False, max_steps=8):
         return result
     result["notes"].append("Indeed Apply flow opened")
 
-    facts = json.load(open(os.path.join(HERE, "facts.json")))
+    facts_path = os.environ.get("JOBPILOT_FACTS",
+                                os.path.join(HERE, "facts.json"))
+    if not os.path.isfile(facts_path):
+        raise SystemExit(
+            "facts.json not found. Copy facts.example.json to facts.json "
+            "and fill in your details first.")
+    facts = json.load(open(facts_path))
     prev_title = None
     for step_no in range(1, max_steps + 1):
         time.sleep(2)

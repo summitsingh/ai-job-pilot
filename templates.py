@@ -57,7 +57,20 @@ from map import (GUARD_RE, apply_work_auth_overrides,
 from fill import matches
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FACTS = json.load(open(os.path.join(HERE, "facts.json")))
+
+def _load_facts():
+    for name in (os.environ.get("JOBPILOT_FACTS", ""),
+                 os.path.join(HERE, "facts.json"),
+                 os.path.join(HERE, "facts.example.json")):
+        if name and os.path.isfile(name):
+            try:
+                with open(name) as fh:
+                    return json.load(fh)
+            except Exception:
+                continue
+    return {}
+
+FACTS = _load_facts()
 
 PROVISIONAL = {"wellfound"}
 

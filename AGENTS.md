@@ -50,14 +50,25 @@ mapping fields to facts) -> `fill` (CDP autofill + readback diff) ->
    with `confirmation_evidence` (confirmation URL and/or "thank you for
    applying" text).
 
+For a queue of postings, use `batch_apply.py --queue urls.txt --port 9226`:
+it fills each posting with `--no-submit`, asks you to confirm each
+submit, handles the code gate per application, and appends one JSON
+record per application to `applications.jsonl`.
+
 ## The Greenhouse code gate (human-in-the-loop, do not bypass)
 
 Greenhouse shows an 8-character email verification code after submit is
-clicked. When you see text like "verification code was sent to" with
+clicked. `code_gate.py` automates the mechanics: it waits for the gate,
+prompts the operator for the code on stdin, enters one character per
+box, clicks submit, and verifies the confirmation page
+(`code_gate.py --port 9226 --workdir /tmp/jobpilot/run1`).
+
+When you see text like "verification code was sent to" with
 empty code boxes:
 
 1. STOP. Do not guess, brute-force, or work around the gate.
-2. Ask the user for the code from their email.
+2. Ask the user for the code from their email (or run `code_gate.py`
+   and let it prompt).
 3. Enter it into the boxes, click submit, and verify the confirmation
    page (URL contains `/confirmation`, text contains "thank you for
    applying").

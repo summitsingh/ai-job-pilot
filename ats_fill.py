@@ -71,7 +71,13 @@ def main():
         json.dump(schema, open(f"{wd}/schema.json", "w"), indent=1)
         result["notes"].append(f"schema: {len(schema['fields'])} fields")
 
-        facts = json.load(open(os.path.join(HERE, "facts.json")))
+        facts_path = os.environ.get("JOBPILOT_FACTS",
+                                    os.path.join(HERE, "facts.json"))
+        if not os.path.isfile(facts_path):
+            raise SystemExit(
+                "facts.json not found. Copy facts.example.json to facts.json "
+                "and fill in your details first.")
+        facts = json.load(open(facts_path))
         fmap = map_fields(schema, facts)
         json.dump(fmap, open(f"{wd}/map.json", "w"), indent=1)
         result["notes"].append(
