@@ -1,0 +1,108 @@
+# AGENTS.md — instructions for AI agents running jobpilot
+
+This repo is a deterministic autofill harness for ATS job application forms
+(Greenhouse, Ashby, Lever). An agent's job: take a posting URL and applicant
+facts, fill the form truthfully, verify the fill, and submit. One model call
+per form; everything else is deterministic.
+
+## The one command
+
+```bash
+python3 ats_fill.py --url <posting URL> --port 9226 --no-submit \
+    --workdir /tmp/jobpilot/run1
+```
+
+Pipeline: `schema_dump` (read the form) -> `map` (one strict-JSON model call
+mapping fields to facts) -> `fill` (CDP autofill + readback diff) ->
+`verify`. Result goes to stdout and `<workdir>/result.json`:
+`{status, confirmation_evidence, fields_filled, fields_skipped, notes}`.
+
+## Setup (do this once)
+
+1. `cp facts.example.json facts.json` and fill in the applicant's REAL
+   details. Every answer the harness gives comes from this file.
+   Never commit it (it is gitignored). If it is missing, stop and ask
+   the user to create it.
+2. Browser: Chrome with remote debugging on the fill port:
+   `google-chrome --remote-debugging-port=9226 --remote-allow-origins='*' \
+   --no-first-run --no-default-browser-check`
+3. Model: an OpenAI-compatible endpoint with strict JSON schema support
+   (`response_format: json_schema, strict: true`). LM Studio default
+   `http://127.0.0.1:1234` works; Qwen3-Coder is the validated model
+   family. Override with `JOBPILOT_MODEL_URL`. If the model cannot do
+   constrained JSON, stop, the map step will produce garbage.
+4. Transport: if Chrome runs on this same machine, set
+   `JOBPILOT_CDP_URL="127.0.0.1:9226"` and skip SSH entirely. For a
+   remote browser host, set `JOBPILOT_SSH_HOST="user@host"` instead.
+5. The resume path in `facts.json` (`resume_path`) must exist ON THE
+   BROWSER HOST, that is where the upload reads from.
+
+## Running an application
+
+1. Always run with `--no-submit` first. Inspect `result.json`:
+   `fields_filled` vs `fields_skipped`. Skips are normal for questions
+   with no truthful answer in facts.json.
+2. Screenshots land in the workdir. Look at one before submitting.
+3. Re-run without `--no-submit` to fill and submit. `ats_fill.py`
+   respects `browser-<port>.lock` files (a lock fresher than 15 min
+   blocks the run unless `--force`); do not run two fills on one port.
+4. After submit, check `result.json`: `status` should be `confirmed`
+   with `confirmation_evidence` (confirmation URL and/or "thank you for
+   applying" text).
+
+## The Greenhouse code gate (human-in-the-loop, do not bypass)
+
+Greenhouse shows an 8-character email verification code after submit is
+clicked. When you see text like "verification code was sent to" with
+empty code boxes:
+
+1. STOP. Do not guess, brute-force, or work around the gate.
+2. Ask the user for the code from their email.
+3. Enter it into the boxes, click submit, and verify the confirmation
+   page (URL contains `/confirmation`, text contains "thank you for
+   applying").
+4. Codes are single-use and expire quickly. If entry fails, ask for a
+   fresh code rather than retrying a stale one.
+
+## Safety invariants (never break these)
+
+1. NEVER invent applicant facts. If a field has no answer in facts.json,
+   it maps to `skip`. No exceptions, not even plausible ones.
+2. NEVER commit `facts.json` or paste its contents into logs, issues,
+   or chat transcripts beyond what the task needs.
+3. Demographics: never infer race or gender from name, photo, or
+   anything else. Decline when that option exists, otherwise skip.
+4. Work authorization answers come from facts.json only. The model
+   never decides these; `templates.py`/`hard_patterns.py` own them.
+5. If `status` is `blocked` (CAPTCHA, blocklist, challenge page), stop
+   and report. Do not attempt to solve or evade.
+6. `modal_common.py` blocklists certain employers from automation.
+   Respect it.
+7. One application per run. Do not parallelize submissions to the same
+   employer.
+
+## Failure modes
+
+- `fields_skipped` high: usually fine, the form asks things outside
+  facts.json. Report the skipped labels so the user can extend facts.json.
+- `status: failed`: read `notes` in result.json, it names the step.
+- Model returns invalid JSON repeatedly: the model likely does not
+  support strict schema mode. Switch models, do not loosen the schema.
+- Upload fails: the resume path does not exist on the browser host.
+  Copy it there first and confirm with a file-exists check.
+
+## Layout
+
+- `ats_fill.py` — orchestrator (dump -> map -> fill -> verify -> submit)
+- `extract.py`, `schema_dump.py` — form introspection to JSON
+- `map.py` — the single model call (strict JSON field-to-fact mapping)
+- `hard_patterns.py`, `templates.py` — deterministic screening answers,
+  zero model calls; unknown fields are skipped
+- `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py` — fill
+  primitives over CDP
+- `verify.py`, `submit_only.py` — fill verification and submission
+- `cdp_driver.py`, `cdp_direct.py`, `common.py` — transport (stdlib-only
+  driver, no venv needed on the browser host)
+- `model.py` — model client with fallback chain
+- `indeed_dump.py`, `indeed_fill.py` — Indeed lane
+- `facts.example.json` — template for the applicant's private facts

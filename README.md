@@ -95,6 +95,9 @@ posture (willingness defaults, disclosure answers, demographics).
 
 ## Notes
 
+- If you are an AI agent, read `AGENTS.md` first. It documents the full
+  run procedure, the Greenhouse code-gate protocol, and the safety
+  invariants.
 - Greenhouse shows an email verification code on submit; the runner pauses
   for it and resumes when you provide the code.
 - CAPTCHA/reCAPTCHA detection stops the run instead of attempting a solve.
