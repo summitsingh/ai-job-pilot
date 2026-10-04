@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jobpilot"
+version = "0.1.0"
+description = "Deterministic, low-token autofill for ATS job application forms"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Summit Singh Thakur" }]
+keywords = ["ats", "greenhouse", "ashby", "lever", "job-application", "autofill"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Office/Business",
+]
+
+[project.scripts]
+jobpilot = "ats_fill:main"
+jobpilot-batch = "batch_apply:main"
+jobpilot-code-gate = "code_gate:main"
+
+[project.urls]
+Homepage = "https://github.com/summitsingh/jobpilot"
+Repository = "https://github.com/summitsingh/jobpilot"
+
+[tool.setuptools]
+py-modules = [
+    "ats_fill",
+    "batch_apply",
+    "code_gate",
+    "submit_only",
+    "extract",
+    "schema_dump",
+    "map",
+    "fill",
+    "hard_patterns",
+    "templates",
+    "set_select",
+    "set_select2",
+    "modal_common",
+    "verify",
+    "cdp_driver",
+    "cdp_direct",
+    "common",
+    "model",
+    "indeed_dump",
+    "indeed_fill",
+]

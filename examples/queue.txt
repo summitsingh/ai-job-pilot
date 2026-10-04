@@ -1,0 +1,9 @@
+# Batch queue example for jobpilot-batch
+#
+# One posting URL per line. Lines starting with # are ignored.
+# Pair with --dedup to skip URLs already in your applications log,
+# and --resume-map to pick a tailored resume per posting.
+
+https://job-boards.greenhouse.io/exampleco/jobs/1234567
+https://jobs.ashbyhq.com/exampleco/01234567-89ab-cdef-0123-456789abcdef
+https://jobs.lever.co/exampleco/abcdef12-3456-7890-abcd-ef1234567890

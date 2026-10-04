@@ -1,0 +1,24 @@
+name: New ATS / board support
+description: Request support for an ATS or job board jobpilot does not handle yet
+labels: [enhancement]
+body:
+  - type: input
+    id: ats
+    attributes:
+      label: ATS or board
+      description: Name of the applicant tracking system or job board
+      placeholder: e.g. Workday, iCIMS, Taleo
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Example posting URL
+      description: A public posting on this ATS so the form can be inspected
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: What is unusual about this form?
+      description: Anything the schema dump gets wrong, unusual widgets, multi-step flows, etc.

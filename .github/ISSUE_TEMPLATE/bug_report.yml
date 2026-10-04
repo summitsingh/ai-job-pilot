@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a problem with a fill, a crash, or wrong behavior
+labels: [bug]
+body:
+  - type: input
+    id: ats
+    attributes:
+      label: ATS type
+      description: Which applicant tracking system was the posting on?
+      placeholder: e.g. Greenhouse, Ashby, Lever
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Posting URL
+      description: Link to the job posting (or a similar public posting on the same board)
+      placeholder: https://job-boards.greenhouse.io/...
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did the harness do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: schema
+    attributes:
+      label: Schema snippet
+      description: >
+        Paste the relevant part of workdir/schema.json (field labels/types).
+        Redact nothing except your own personal data.
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste workdir/result.json and any traceback
+      render: json
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit hash or PyPI version of jobpilot
+      placeholder: e.g. 0.1.0 or commit 046e999

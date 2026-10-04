@@ -1,0 +1,10 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1791130894, "env": {"SHELL": "/bin/zsh", "TERM": null}}
+[0.008456, "o", "$ python3 schema_dump.py --url <posting> --port 9330 --out schema.json\r\n"]
+[6.361307, "o", "wrote /tmp/jobpilot-demo-wd/schema.json (11 fields)\r\n"]
+[8.371117, "o", "\r\n$ cat schema.json | head -12   # every field: label, type, options, required\r\n"]
+[9.438755, "o", "  First Name [text]\r\n  Last Name [text]\r\n  Email [email]\r\n  Phone [tel]\r\n  Location [text]\r\n  LinkedIn [url]\r\n  GitHub [url]\r\n  Resume [file]\r\n  Are you legally authorized to work in the  [select]\r\n  Will you now or in the future require spon [select]\r\n  Years of experience [number]\r\n"]
+[12.449635, "o", "\r\n# map.py: ONE model call maps fields -> facts.json (strict JSON).\r\n"]
+[12.44994, "o", "# Canned here for reproducibility; the fill below is fully deterministic.\r\n"]
+[14.462669, "o", "\r\n$ python3 fill.py --schema schema.json --map map.json --port 9330 --no-submit\r\n"]
+[15.778556, "o", "fields filled: 10\r\nmismatched: 1\r\nskipped: 0\r\n"]
+[17.787665, "o", "\r\n# Every field read back and diffed. Unknown fields are skipped, never guessed.\r\n"]
