@@ -67,6 +67,22 @@ jobpilot --url <greenhouse|ashby|lever|workable posting URL> \
 submit. Every run emits `result.json` with `{status, confirmation_evidence,
 fields_filled, fields_skipped, notes}`.
 
+## Using with an AI agent
+
+jobpilot is built to be driven by an agent. Point your agent at this repo
+and tell it to read `SKILL.md`:
+
+> Clone https://github.com/summitsingh/jobpilot and read SKILL.md.
+> Apply to <posting URL> with my facts. Dry-run first, show me the result
+> before submitting.
+
+`SKILL.md` is the full playbook: prerequisites, the workflow, the
+Greenhouse code-gate protocol, and the safety invariants. `AGENTS.md` is
+the longer runbook for agents that want the full context.
+
+Platform-specific setup (ChatGPT, Codex, Claude Code, Muse, Hermes):
+see [`docs/agent-setup.md`](docs/agent-setup.md).
+
 ## Batch mode
 
 `jobpilot-batch` runs a queue of posting URLs one at a time:

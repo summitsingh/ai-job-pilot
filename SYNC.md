@@ -55,6 +55,6 @@ These private-harness files must NEVER go public:
 These exist only in the public repo and are never synced from private:
 
 - `batch_apply.py`, `code_gate.py` (built for the public release)
-- `AGENTS.md`, `CONTRIBUTING.md`, `docs/`, `examples/`, `demo/`
+- `AGENTS.md`, `SKILL.md`, `CONTRIBUTING.md`, `docs/`, `examples/`, `demo/`
 - `pyproject.toml`, `facts.example.json`, `LICENSE`
 - `test_offline.py` (public test suite; private has its own test files)
