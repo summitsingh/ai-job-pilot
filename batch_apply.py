@@ -28,10 +28,41 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def run(*args):
+def run(*args, env=None):
     r = subprocess.run([sys.executable] + list(args),
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                       env=env if env is not None else os.environ)
     return r
+
+
+def load_dedup_set(log_path):
+    """URLs already present in a JSONL applications log. Pure function."""
+    seen = set()
+    if not os.path.isfile(log_path):
+        return seen
+    with open(log_path) as fh:
+        for line in fh:
+            try:
+                u = json.loads(line).get("url")
+                if u:
+                    seen.add(u)
+            except Exception:
+                continue
+    return seen
+
+
+def match_resume(url, resume_map):
+    """First resume path whose key substring appears in the URL, else None.
+
+    Keys starting with '_' are treated as comments and skipped.
+    Pure function.
+    """
+    for substr, rpath in resume_map.items():
+        if substr.startswith("_"):
+            continue
+        if substr in url:
+            return rpath
+    return None
 
 
 def main():
@@ -43,6 +74,13 @@ def main():
                     help="JSONL log file (one record per application)")
     ap.add_argument("--workdir-base", default="/tmp/jobpilot/batch",
                     help="parent dir for per-application workdirs")
+    ap.add_argument("--dedup", action="store_true",
+                    help="skip URLs already present in the log file")
+    ap.add_argument("--resume-map", default="",
+                    help="optional JSON file mapping URL substrings to "
+                         "resume paths, e.g. {\"togetherai\": \"/tmp/res.pdf\"}. "
+                         "The matched resume is copied over facts.json "
+                         "'resume_path' for that application only.")
     a = ap.parse_args()
 
     with open(a.queue) as fh:
@@ -51,7 +89,20 @@ def main():
     print(f"{len(urls)} URLs in queue.")
     os.makedirs(a.workdir_base, exist_ok=True)
 
+    # Dedup: URLs already logged are skipped.
+    seen = load_dedup_set(a.log) if a.dedup else set()
+    if a.dedup:
+        print(f"dedup: {len(seen)} URLs already in log, will skip.")
+
+    resume_map = {}
+    if a.resume_map:
+        with open(a.resume_map) as fh:
+            resume_map = json.load(fh)
+
     for i, url in enumerate(urls, 1):
+        if url in seen:
+            print(f"\n=== [{i}/{len(urls)}] SKIP (already logged) {url} ===")
+            continue
         wd = os.path.join(a.workdir_base, f"run{i:03d}")
         os.makedirs(wd, exist_ok=True)
         print(f"\n=== [{i}/{len(urls)}] {url} ===")
@@ -59,9 +110,17 @@ def main():
             datetime.timezone.utc).isoformat(),
             "url": url, "workdir": wd}
 
+        # Per-URL resume override (does not touch the user's facts.json).
+        env = dict(os.environ)
+        rpath = match_resume(url, resume_map)
+        if rpath:
+            env["JOBPILOT_RESUME"] = rpath
+            rec["resume"] = rpath
+            print(f"resume override: {rpath}")
+
         r = run(os.path.join(HERE, "ats_fill.py"),
                 "--url", url, "--port", str(a.port),
-                "--no-submit", "--workdir", wd)
+                "--no-submit", "--workdir", wd, env=env)
         if r.returncode != 0:
             rec["status"] = "fill-error"
             rec["note"] = (r.stderr or "")[-500:]
@@ -120,6 +179,7 @@ def main():
                          else "submit-unconfirmed")
         print("confirmed:", rec["confirmed"], rec["confirmation_url"])
         _log(a.log, rec)
+        seen.add(url)
 
     print(f"\nBatch done. Log: {a.log}")
 

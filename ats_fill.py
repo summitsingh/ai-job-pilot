@@ -78,6 +78,10 @@ def main():
                 "facts.json not found. Copy facts.example.json to facts.json "
                 "and fill in your details first.")
         facts = json.load(open(facts_path))
+        # Per-run resume override (batch_apply --resume-map); never
+        # modifies the user's facts.json on disk.
+        if os.environ.get("JOBPILOT_RESUME"):
+            facts["resume_path"] = os.environ["JOBPILOT_RESUME"]
         fmap = map_fields(schema, facts)
         json.dump(fmap, open(f"{wd}/map.json", "w"), indent=1)
         result["notes"].append(
