@@ -80,8 +80,54 @@ and tell it to read `SKILL.md`:
 Greenhouse code-gate protocol, and the safety invariants. `AGENTS.md` is
 the longer runbook for agents that want the full context.
 
-Platform-specific setup (ChatGPT, Codex, Claude Code, Muse, Hermes):
-see [`docs/agent-setup.md`](docs/agent-setup.md).
+### Per-platform setup
+
+**Claude Code** reads `SKILL.md` natively. For a persistent install:
+
+```bash
+mkdir -p ~/.claude/skills/jobpilot
+cp /path/to/jobpilot/SKILL.md ~/.claude/skills/jobpilot/
+```
+
+Then: "Read the jobpilot skill and apply to <posting URL> using my
+facts.json. Dry-run first."
+
+**Codex** works from the repo directory:
+
+```bash
+git clone https://github.com/summitsingh/jobpilot.git
+cd jobpilot && cp facts.example.json facts.json  # fill in your details
+codex
+```
+
+Then: "Read SKILL.md and follow it to apply to <posting URL>. Use
+--no-submit first and show me the result before submitting."
+
+**ChatGPT** via a Custom GPT: upload `SKILL.md`, `AGENTS.md`, and
+`docs/facts-schema.md` as knowledge files, with instructions to follow
+the SKILL.md workflow. Note: ChatGPT cannot run the browser or scripts
+itself; use it for planning and review, running the commands it gives
+you and pasting results back.
+
+**Muse** runs the full loop itself (shell, browser, filesystem):
+
+> Clone https://github.com/summitsingh/jobpilot and read SKILL.md.
+> Apply to <posting URL> with my facts at <path to facts.json>.
+
+Submit approvals and Greenhouse email codes come to you as approval
+prompts.
+
+**Hermes / OpenClaw / local agents:** `AGENTS.md` is the self-contained
+runbook. "Read AGENTS.md in ./jobpilot and apply to <URL>."
+
+### The two human steps (all platforms)
+
+1. **Submit approval.** The agent dry-runs with `--no-submit` and shows
+   you the fill. You approve before anything is submitted.
+2. **Greenhouse email codes.** After submit, Greenhouse emails an
+   8-character code. You read it from your email and give it to the agent.
+
+Full details: [`docs/agent-setup.md`](docs/agent-setup.md).
 
 ## Batch mode
 
