@@ -5,29 +5,46 @@ Ashby, Lever, Workable). Fill a form with ~50x fewer LLM calls and ~99%
 fewer tokens than a naive agent loop, by doing everything deterministic
 except the one step that actually needs a model.
 
+## Why this exists
+
+A naive AI agent filling out a job application re-reads the DOM and
+re-reasons about every field, burning thousands of tokens per form.
+ai-job-pilot flips the approach: extract the form as structured JSON,
+make exactly one model call to map fields to your details, then fill
+everything deterministically with readback verification.
+
+The result is faster, cheaper, and more reliable than an agent loop,
+because the model only does the one thing it is actually needed for.
+
 ## Proven on
 
 Real verification numbers from production use:
 
 - **Greenhouse:** 42/42 fields verified on live forms, zero mismatches
 - **Ashby + Lever:** 82/82 fields verified across 8 real forms, zero model calls
-- **Workable:** 7/9 fill actions verified on a live form (2026-10-04), zero
-  Workable-specific code; 2 failures were address-autocomplete sub-fields
+- **Workable:** 7/9 fill actions verified on a live form (2026-10-04); the 2
+  failures were address-autocomplete sub-fields, no Workable-specific code needed
 - **Offline tests:** 18/18 passing, no browser, model, or network required
-- **Live submits:** confirmed via `/confirmation` URL + "Thank you for applying" page text
+- **Live submits:** confirmed via `/confirmation` URL plus "Thank you for applying" page text
 
 ## Install
 
 ```bash
 git clone https://github.com/summitsingh/ai-job-pilot.git
-cd jobpilot
+cd ai-job-pilot
 pip install .
 ```
 
-This provides three console scripts: `ai-job-pilot` (single application),
-`ai-job-pilot-batch` (queue runner), and `ai-job-pilot-code-gate` (email code gate
-handler). Or skip the install and run the scripts directly with Python 3.9+;
-the only dependency is the standard library.
+This provides three console scripts:
+
+| Command | Purpose |
+|---|---|
+| `ai-job-pilot` | Fill a single application (dry-run or submit) |
+| `ai-job-pilot-batch` | Run a queue of posting URLs with dedup and per-application confirmation |
+| `ai-job-pilot-code-gate` | Handle Greenhouse's email verification code gate |
+
+Or skip the install and run the scripts directly with Python 3.9+.
+The only dependency is the standard library, no virtualenv needed.
 
 ## How it works
 
@@ -35,22 +52,55 @@ the only dependency is the standard library.
 posting URL -> schema_dump -> map -> fill -> verify -> submit
 ```
 
-1. **schema_dump.py** - loads the posting in a debug-Chrome browser and dumps
-   every form field (label, type, options, required) as JSON.
-2. **map.py** - a local model maps each field to an answer from your
-   `facts.json`, using strict JSON schema output. One model call per form.
-   Fields with no safe answer map to `skip`.
-3. **hard_patterns.py / templates.py** - deterministic pattern matchers that
-   answer the long tail of screening questions (work auth, demographics,
-   salary, education, yes/no willingness) with zero model calls. First
-   matching pattern wins; unknown fields are skipped, never guessed.
-4. **fill.py** - applies the field map through CDP: batched JS for text
-   fields, real clicks for selects/radios/uploads. Reads every field back
-   and diffs against expected values.
-5. **verify.py / submit_only.py** - confirm the fill, then submit.
+### 1. Schema dump (no model)
 
-The one hard rule: the harness never invents facts. Anything not in
-`facts.json` is skipped.
+`schema_dump.py` loads the posting in a debug-Chrome browser over CDP
+and extracts every form field as JSON: label text, input type, options
+for selects and radios, required flags, and autocomplete attributes.
+This is pure DOM introspection, zero tokens spent.
+
+### 2. Map (one model call)
+
+`map.py` sends the field schema and your `facts.json` to a local model
+with a strict JSON schema constraint. The model returns a field-to-answer
+mapping. Fields with no safe answer map to `skip`, never to a guess.
+This is the only LLM call in the entire pipeline.
+
+Supported model servers: any OpenAI-compatible endpoint (LM Studio
+default at `http://127.0.0.1:1234`) or Ollama native API. Configure
+with `JOBPILOT_MODEL_URL` and `JOBPILOT_API_FLAVOR`.
+
+### 3. Deterministic screening answers (no model)
+
+`hard_patterns.py` and `templates.py` answer the long tail of screening
+questions with pure pattern matching: work authorization, demographics,
+salary expectations, education, yes/no willingness questions. First
+matching pattern wins. Unknown fields are skipped, never guessed.
+The Ashby and Lever templates cover 82/82 fields across 8 real forms
+with zero model calls.
+
+### 4. Fill (no model)
+
+`fill.py` applies the field map through CDP: batched JavaScript for text
+inputs, real mouse clicks for selects, radios, checkboxes, and file
+uploads. After filling, it reads every field back from the DOM and diffs
+against the expected values. Any mismatch is reported, not silently
+accepted.
+
+### 5. Verify and submit (no model)
+
+`verify.py` confirms the fill state. `submit_only.py` clicks submit.
+For Greenhouse, `code_gate.py` handles the email verification gate
+(see below). Confirmation is verified by URL (`/confirmation`) and
+page text ("Thank you for applying") before the run is logged as
+successful.
+
+### The one hard rule
+
+The harness never invents facts. Anything not in `facts.json` is
+skipped. This is enforced at three levels: the map prompt instructs
+`skip` for unknown fields, the templates only fire on known patterns,
+and the fill step refuses to write values with no source.
 
 ## Quick start
 
@@ -64,13 +114,22 @@ ai-job-pilot --url <greenhouse|ashby|lever|workable posting URL> \
 ```
 
 `--no-submit` fills and verifies without submitting. Drop it to actually
-submit. Every run emits `result.json` with `{status, confirmation_evidence,
-fields_filled, fields_skipped, notes}`.
+submit. Every run emits `result.json`:
+
+```json
+{
+  "status": "filled|confirmed|failed|blocked",
+  "confirmation_evidence": "URL and/or confirmation text",
+  "fields_filled": 42,
+  "fields_skipped": 3,
+  "notes": "human-readable summary"
+}
+```
 
 ## Using with an AI agent
 
-jobpilot is built to be driven by an agent. Point your agent at this repo
-and tell it to read `SKILL.md`:
+ai-job-pilot is built to be driven by an agent. Point your agent at this
+repo and tell it to read `SKILL.md`:
 
 > Clone https://github.com/summitsingh/ai-job-pilot and read SKILL.md.
 > Apply to <posting URL> with my facts. Dry-run first, show me the result
@@ -85,18 +144,18 @@ the longer runbook for agents that want the full context.
 **Claude Code** reads `SKILL.md` natively. For a persistent install:
 
 ```bash
-mkdir -p ~/.claude/skills/jobpilot
-cp /path/to/jobpilot/SKILL.md ~/.claude/skills/jobpilot/
+mkdir -p ~/.claude/skills/ai-job-pilot
+cp /path/to/ai-job-pilot/SKILL.md ~/.claude/skills/ai-job-pilot/
 ```
 
-Then: "Read the jobpilot skill and apply to <posting URL> using my
+Then: "Read the ai-job-pilot skill and apply to <posting URL> using my
 facts.json. Dry-run first."
 
 **Codex** works from the repo directory:
 
 ```bash
 git clone https://github.com/summitsingh/ai-job-pilot.git
-cd jobpilot && cp facts.example.json facts.json  # fill in your details
+cd ai-job-pilot && cp facts.example.json facts.json  # fill in your details
 codex
 ```
 
@@ -118,7 +177,7 @@ Submit approvals and Greenhouse email codes come to you as approval
 prompts.
 
 **Hermes / OpenClaw / local agents:** `AGENTS.md` is the self-contained
-runbook. "Read AGENTS.md in ./jobpilot and apply to <URL>."
+runbook. "Read AGENTS.md in ./ai-job-pilot and apply to <URL>."
 
 ### The two human steps (all platforms)
 
@@ -138,20 +197,37 @@ ai-job-pilot-batch --queue examples/queue.txt --port 9226 --dedup \
     --resume-map examples/resume-map.json
 ```
 
-- `--dedup`: skip URLs already in your applications log (safe re-runs).
-- `--resume-map`: JSON mapping URL substrings to resume paths, so each
-  posting gets its tailored resume without editing `facts.json`.
+- `--dedup`: skip URLs already in your applications log. Safe to re-run
+  the same queue; completed applications are not repeated.
+- `--resume-map`: JSON mapping URL substrings to resume file paths, so
+  each posting gets its tailored resume without editing `facts.json`.
+  Example: `{"acme": "/path/to/acme-tailored.pdf"}`.
 - Each application fills with `--no-submit` first and asks for your
-  confirmation before submitting; every result is appended to
-  `applications.jsonl`.
+  confirmation before submitting. Every result is appended to
+  `applications.jsonl` as one JSON object per line.
 
 ## Greenhouse code gate
 
-Greenhouse shows an 8-character email verification code on submit
-(per-application; codes expire quickly). `ai-job-pilot-code-gate` detects the
-gate, prompts for the code, enters one character per box, submits, and
-verifies the confirmation page. Codes stay human-in-the-loop; they are
-never guessed, stored, or bypassed. See `AGENTS.md` for the full protocol.
+Greenhouse shows an 8-character email verification code after you click
+submit. Key facts:
+
+- The gate is **per-application**: verifying once does not carry over
+  to the next application.
+- Codes expire quickly (under 40 minutes in testing).
+- There is no resend button; only a fresh Submit click triggers a new code.
+
+`ai-job-pilot-code-gate` detects the gate, prompts you for the code on
+stdin, enters one character per input box, clicks submit, and verifies
+the confirmation page. Codes stay human-in-the-loop: they are never
+guessed, stored, or bypassed. See `AGENTS.md` for the full protocol.
+
+## Finding jobs to apply to
+
+`docs/platforms.md` lists 50+ job discovery platforms: API-first sources
+(AI Dev Jobs has a free REST API built for agents), high-volume boards
+(EchoJobs, Remotive), niche boards (Kube Careers for infra, LeadJobs.dev
+for Staff+), AI-specific boards, remote-first boards, startup and VC
+portfolio boards, and direct ATS board URL patterns.
 
 ## Demo
 
@@ -168,12 +244,14 @@ asciinema play demo/demo.cast
 | `JOBPILOT_SSH_HOST` | (required) | ssh destination of the browser host |
 | `JOBPILOT_SSH_CMD` | `ssh` | ssh command |
 | `JOBPILOT_SCP_CMD` | `scp` | scp command (copies the CDP driver) |
-| `JOBPILOT_CDP_URL` | (unset) | `host:port` of a directly reachable debug Chrome; when set, the driver runs locally |
+| `JOBPILOT_CDP_URL` | (unset) | `host:port` of a directly reachable debug Chrome; when set, the driver runs locally without ssh |
 | `JOBPILOT_HOST_SSH` | (unset) | ssh helper for browser-host file checks in direct mode |
 | `JOBPILOT_MODEL_URL` | `http://127.0.0.1:1234` | model server base URL |
-| `JOBPILOT_API_FLAVOR` | `openai` | `openai` (LM Studio) or `ollama` (native API) |
+| `JOBPILOT_API_FLAVOR` | `openai` | `openai` (LM Studio and compatibles) or `ollama` (native API) |
 | `JOBPILOT_MODEL_NAME` | `qwen/qwen3-coder-next` | primary model id |
-| `JOBPILOT_BACKUP_MODELS` | (see model.py) | comma-separated fallback model ids |
+| `JOBPILOT_BACKUP_MODELS` | (see model.py) | comma-separated fallback model ids, tried in order |
+| `JOBPILOT_FACTS` | `./facts.json` | path to your facts file |
+| `JOBPILOT_RESUME` | (from facts.json) | override path to your resume PDF |
 
 Legacy `ATS_*` names for these variables are also honored.
 
@@ -188,48 +266,74 @@ google-chrome --remote-debugging-port=9226 --remote-allow-origins='*' \
 ```
 
 `ensure_driver()` copies the stdlib-only `cdp_driver.py` to the browser
-host automatically; no venv needed there.
+host automatically over ssh/scp; no Python venv is needed on the browser
+host. If Chrome runs on the same machine, set `JOBPILOT_CDP_URL` instead
+and skip ssh entirely.
 
 ## facts.json
 
 All answers come from `facts.json` (gitignored; start from
-`facts.example.json`). It holds identity, contact, work history,
-education, work authorization, salary expectations, and screening
-posture (willingness defaults, disclosure answers, demographics).
-`templates.py` documents every supported key. Keep this file private.
+`facts.example.json`). It holds:
+
+- Identity and contact (name, email, phone, location, links)
+- Work history (titles, companies, dates, descriptions)
+- Education (degrees, schools, dates)
+- Work authorization (visa status, sponsorship needs)
+- Salary expectations
+- Screening posture (willingness defaults, disclosure answers, demographics)
+
+`templates.py` documents every supported key, and
+`docs/facts-schema.md` has the full schema reference. Keep this file
+private; it is gitignored by default.
+
+## Safety
+
+- **No invented data.** Fields without answers are skipped, never guessed.
+- **No CAPTCHA solving.** Detection stops the run; the operator is notified.
+- **No account-gated ATS automation** without explicit setup (iCIMS, Workday,
+  Taleo, and similar multi-page or account-walled flows are out of scope).
+- **Human approval** before every submit (`--no-submit` dry-run first).
+- **Human-in-the-loop** for Greenhouse email codes.
+- Some employers are blocklisted from automation in the default config;
+  see `modal_common.py`.
+- `facts.json` is gitignored. Never commit it.
 
 ## Layout
 
 - `ats_fill.py` - orchestrator: dump -> map -> fill -> verify -> submit
-- `batch_apply.py` - run a queue of posting URLs one at a time, with
-  `--dedup`, `--resume-map`, a per-application confirm prompt, and a JSONL log
-- `code_gate.py` - handle the Greenhouse email verification gate
-  (prompts for the code, enters it, verifies confirmation)
+- `batch_apply.py` - queue runner with `--dedup`, `--resume-map`,
+  per-application confirm prompt, and JSONL logging
+- `code_gate.py` - Greenhouse email verification gate handler
 - `examples/` - sample `queue.txt` and `resume-map.json` for batch mode
 - `demo/demo.cast` - recorded `--no-submit` run (play with asciinema)
-- `extract.py`, `schema_dump.py` - form introspection
-- `map.py` - model-based field-to-fact mapping (strict JSON, one call)
-- `hard_patterns.py`, `templates.py` - deterministic screening answers
-- `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py` - fill primitives
-- `verify.py`, `submit_only.py` - verification and submission
-- `cdp_driver.py`, `cdp_direct.py`, `common.py` - CDP transport
-- `model.py` - local model client with fallback chain
+- `extract.py`, `schema_dump.py` - form introspection to JSON
+- `map.py` - the single model call (strict JSON field-to-fact mapping)
+- `hard_patterns.py`, `templates.py` - deterministic screening answers,
+  zero model calls
+- `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py` - fill
+  primitives over CDP
+- `verify.py`, `submit_only.py` - fill verification and submission
+- `cdp_driver.py`, `cdp_direct.py`, `common.py` - transport (stdlib-only
+  driver, no venv needed on the browser host)
+- `model.py` - model client with fallback chain
 - `indeed_dump.py`, `indeed_fill.py` - Indeed application lane
-- `test_offline.py` - offline unit tests (no browser/model needed);
-  `test_*.py` are live-browser integration tests (`--no-submit` only)
-- `docs/ats-notes.md` - Greenhouse/Ashby/Lever quirks learned in production
+- `test_offline.py` - 18 offline unit tests (no browser/model needed)
+- `test_*.py` - live-browser integration tests (`--no-submit` only)
+- `docs/ats-notes.md` - Greenhouse, Ashby, Lever, and Workable quirks
+  learned in production
 - `docs/platforms.md` - 50+ job discovery platforms (boards, APIs, VC portfolios)
+- `docs/agent-setup.md` - per-platform agent setup (Claude Code, Codex,
+  ChatGPT, Muse, Hermes, OpenClaw)
+- `docs/facts-schema.md` - full `facts.json` schema reference
+- `docs/troubleshooting.md` - common failures and fixes
 
 ## Notes
 
 - If you are an AI agent, read `AGENTS.md` first. It documents the full
   run procedure, the Greenhouse code-gate protocol, and the safety
   invariants.
-- Greenhouse shows an email verification code on submit; `code_gate.py`
-  walks the operator through it (or see `AGENTS.md` for the protocol).
-- CAPTCHA/reCAPTCHA detection stops the run instead of attempting a solve.
-- Some employers are blocklisted from automation in the default config;
-  see `modal_common.py`.
+- CAPTCHA and reCAPTCHA detection stops the run instead of attempting
+  a solve.
 - CI runs the offline test suite on every push. See `CONTRIBUTING.md`
   before submitting a pull request.
 
