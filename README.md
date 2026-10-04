@@ -218,6 +218,7 @@ posture (willingness defaults, disclosure answers, demographics).
 - `test_offline.py` - offline unit tests (no browser/model needed);
   `test_*.py` are live-browser integration tests (`--no-submit` only)
 - `docs/ats-notes.md` - Greenhouse/Ashby/Lever quirks learned in production
+- `docs/platforms.md` - 50+ job discovery platforms (boards, APIs, VC portfolios)
 
 ## Notes
 
