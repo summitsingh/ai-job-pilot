@@ -7,9 +7,9 @@ Usage: test_indeed.py --jk <indeed-job-key> [--out dir] [--suite]
 Flow: goto viewjob -> open_apply (clicks "Apply now") -> dump_step ->
       templates.map_template(ats=indeed) -> fill.apply_fill(--no-submit).
 
-The Indeed lane runs on the mac-mini Chrome (port 19446) via the generic
-CDP lane: ATS_CDP_URL=127.0.0.1:19446 ATS_HOST_SSH=~/workspace/bin/macmini-ssh
-(the tunnel is a persistent background process on the controller).
+The Indeed lane runs on a dedicated debug Chrome via the generic
+CDP lane: JOBPILOT_CDP_URL=<host:port> JOBPILOT_HOST_SSH=<ssh-helper>
+(the helper is a persistent ssh wrapper on the controller).
 """
 import argparse
 import json
@@ -18,9 +18,9 @@ import sys
 import time
 
 # Indeed lane env must be set before common is imported.
-os.environ.setdefault("ATS_CDP_URL", "127.0.0.1:19446")
-os.environ.setdefault("ATS_HOST_SSH",
-                      os.path.expanduser("~/workspace/bin/macmini-ssh"))
+os.environ.setdefault("JOBPILOT_CDP_URL", "127.0.0.1:19446")
+os.environ.setdefault("JOBPILOT_HOST_SSH",
+                      os.path.expanduser("~/bin/browser-host-ssh"))
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import cdp_ok, cdp, b64

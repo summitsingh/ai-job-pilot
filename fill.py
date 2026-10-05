@@ -627,7 +627,7 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
         pf["verified"] = bool(ok)
         (filled if ok else mismatched).append(pf["field"])
 
-    # 6) screenshot (saved on the browser host in the amd lane; saved on the
+    # 6) screenshot (saved on the browser host in the SSH lane; saved on the
     # controller in the direct lane, where the driver runs locally)
     if shot_path:
         try:

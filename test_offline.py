@@ -111,7 +111,7 @@ class TestMatches(unittest.TestCase):
         self.assertTrue(matches("", "anything"))
 
     def test_digit_tolerant(self):
-        self.assertTrue(matches("[PHONE-REDACTED]", "[PHONE-REDACTED]"))
+        self.assertTrue(matches("5551234567", "(555) 123-4567"))
 
 
 class TestDedup(unittest.TestCase):

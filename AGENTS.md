@@ -5,6 +5,16 @@ This repo is a deterministic autofill harness for ATS job application forms
 facts, fill the form truthfully, verify the fill, and submit. One model call
 per form; everything else is deterministic.
 
+Local models first: the pipeline routes field mapping through your
+local model (LM Studio / Ollama, OpenAI-compatible) with one strict-JSON
+call per form in `map.py`, which raises if the server is unreachable, so
+keep the model server up before a run. The deterministic
+`hard_patterns.py` / `templates.py` are a separate offline path for
+template testing (`test_templates.py`), not an automatic fallback.
+Only one model needs to be loaded at a time; the harness probes the
+server and prefers whichever chain model is actually loaded. See
+`docs/multi-machine.md` for multi-machine operation.
+
 ## The one command
 
 ```bash
@@ -24,8 +34,10 @@ mapping fields to facts) -> `fill` (CDP autofill + readback diff) ->
    Never commit it (it is gitignored). If it is missing, stop and ask
    the user to create it.
 2. Browser: Chrome with remote debugging on the fill port:
-   `google-chrome --remote-debugging-port=9226 --remote-allow-origins='*' \
-   --no-first-run --no-default-browser-check`
+   ```bash
+   google-chrome --remote-debugging-port=9226 --remote-allow-origins='*' \
+     --no-first-run --no-default-browser-check
+   ```
 3. Model: an OpenAI-compatible endpoint with strict JSON schema support
    (`response_format: json_schema, strict: true`). LM Studio default
    `http://127.0.0.1:1234` works; Qwen3-Coder is the validated model

@@ -29,8 +29,10 @@ SSH_CMD = os.environ.get("JOBPILOT_SSH_CMD", "ssh")
 SCP_CMD = os.environ.get("JOBPILOT_SCP_CMD", "scp")
 SSH_HOST = os.environ.get("JOBPILOT_SSH_HOST", "")
 DRIVER = "/tmp/jobpilot/cdp_driver.py"
-DIRECT_CDP = os.environ.get("JOBPILOT_CDP_URL")
-HOST_SSH = os.environ.get("JOBPILOT_HOST_SSH")
+DIRECT_CDP = os.environ.get("JOBPILOT_CDP_URL",
+                            os.environ.get("ATS_CDP_URL"))
+HOST_SSH = os.environ.get("JOBPILOT_HOST_SSH",
+                          os.environ.get("ATS_HOST_SSH"))
 DIRECT_DRIVER = os.path.join(HERE, "cdp_direct.py")
 
 

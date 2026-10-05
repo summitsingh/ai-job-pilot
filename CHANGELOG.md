@@ -6,6 +6,22 @@ All notable changes to jobpilot are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `docs/multi-machine.md`: multi-machine CDP operation guide. Visible
+  debug Chromes with per-lane ports, default Chrome profile (temp profiles
+  lose sessions), detached launches (schtasks on Windows, nohup on
+  macOS/Linux), tab hygiene, the never-mix-headless-and-headful profile
+  rule, one shared model server, and single-owner dedup across machines.
+- Greenhouse code-gate handling pattern documented in `docs/ats-notes.md`:
+  park at the code screen, accept a user-supplied code once, type it,
+  submit, verify the confirmation page, never store or reuse codes. Codes
+  expire in under 40 minutes; one code per application.
+- Local-models-first operation documented: the pipeline makes one
+  strict-JSON local-model call per form (`map.py`, which raises if the
+  server is unreachable, so keep it up); deterministic
+  `hard_patterns.py` / `templates.py` are the separate offline template
+  path. Documented in `docs/multi-machine.md` and AGENTS.md.
+- Troubleshooting: "profile in use" launch conflict and one-model-at-a-time
+  server guidance.
 - `batch_apply.py --dedup`: skip posting URLs already present in the
   applications log, so a queue can be re-run safely.
 - `batch_apply.py --resume-map`: JSON file mapping URL substrings to resume

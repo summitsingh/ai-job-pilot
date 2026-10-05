@@ -4,7 +4,7 @@
 Usage:
   test_templates.py --ats ashby --url <application-url> --port 9226 [--out dir]
   test_templates.py --suite   # runs the full built-in suite (ashby x2, lever x2,
-                              # indeed x2 via mac-mini lane, wellfound provisional)
+                              # indeed x2, wellfound provisional)
 
 Flow per form: dump schema -> templates.map_template (timed) ->
 fill.apply_fill(--no-submit, timed) -> per-form PASS/FAIL + field accuracy.

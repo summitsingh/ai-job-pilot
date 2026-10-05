@@ -17,6 +17,16 @@
   page-target websocket. Close or refresh tabs between batches.
 - Never mix headless and headful on the same Chrome profile; it corrupts
   the profile's Preferences and later launches die on startup.
+- "Profile in use" on launch: the default profile is already open in a
+  normal (non-debug) Chrome. Close it first, then relaunch with
+  `--remote-debugging-port`. Chrome restores the previous tabs.
+
+**Only one model loaded at a time.**
+- The harness probes `GET /v1/models` and prefers whichever chain model
+  is actually loaded. Do not load two models at once; unload before
+  loading the next. If the server is down, `map.py` raises: start the
+  server yourself (LM Studio or Ollama) before the run rather than
+  expecting the harness to recover.
 
 ## Model
 
@@ -30,7 +40,7 @@
 **No model available.**
 - The harness can still run the deterministic parts: `schema_dump.py`
   needs only the browser, and `fill.py` needs only a map. Write the map
-  by hand (see `demo/` for the format) to run fully offline.
+  by hand (see the strict-JSON schema in `map.py`) to run fully offline.
 
 ## Forms
 

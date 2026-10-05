@@ -9,9 +9,14 @@ debugging a "the form looks fine but the run failed" situation.
   Greenhouse shows an 8-character code gate; a code is emailed to the
   applicant address. Each application needs a FRESH code: one verification
   does not carry over to the next application, and codes expire quickly
-  (tens of minutes). There is no resend UI; submitting again triggers a
-  new code email. `code_gate.py` handles the whole flow: it waits for the
-  gate, prompts the operator for the code, enters it, and verifies.
+  (under 40 minutes in practice). There is no resend UI; submitting again
+  triggers a new code email. `code_gate.py` handles the whole flow: it waits
+  for the gate, prompts the operator for the code, enters it, and verifies.
+- **Code-gate handling pattern.** Park the browser at the code screen and
+  stop. Accept a user-supplied code exactly once, type it into the boxes
+  (one character per box), click submit, and verify the confirmation page.
+  Never guess, brute-force, or work around the gate. Never store or reuse
+  codes: a code that fails once is stale, ask for a fresh one.
 - **Confirmation.** A submitted application lands on a URL ending in
   `/confirmation` with text containing "thank you for applying". Check
   both; the URL alone is the stronger signal.
@@ -91,8 +96,8 @@ debugging a "the form looks fine but the run failed" situation.
 - **Readback diff.** After every fill, the harness reads each field
   back and diffs against the expected value. Trust a `filled-no-submit`
   result with zero mismatches; distrust anything else.
-- **Phone fields.** Widgets reformat digits (`[PHONE-REDACTED]` vs
-  `[PHONE-REDACTED]`). `hard_patterns.matches` compares digit-stripped, so
+- **Phone fields.** Widgets reformat digits (`(555) 123-4567` vs
+  `5551234567`). `hard_patterns.matches` compares digit-stripped, so
   readback verification tolerates reformatting.
 - **Uploads.** The resume path in `facts.json` must exist ON THE
   BROWSER HOST (that is where CDP `setFileInputFiles` reads from),
