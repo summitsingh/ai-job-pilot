@@ -34,6 +34,18 @@ debugging a "the form looks fine but the run failed" situation.
   When `schema_dump` returns zero fields on an Ashby form, the board
   config is the first suspect, not the harness. File the board URL
   and the raw HTML snippet in an issue.
+- **DOM fills can be silently discarded.** Ashby forms submit field values
+  through a GraphQL mutation (operation names like `ApiSetFormValue`,
+  though the exact name drifts). Driving the form through DOM input
+  events alone is unreliable: the client shows no error but the server
+  drops the values. The robust path is `ashby_graphql.py`: install the
+  fetch/XHR hook, trigger one real mutation to capture the template
+  (query text plus organization/render/definition identifiers), then
+  replay the mutation directly for every field. Always verify by
+  reading the values back server-side; a 200 response alone does not
+  prove the values stuck. The hook must cover both `fetch` and
+  `XMLHttpRequest`: Ashby has been observed switching transports, and a
+  fetch-only hook silently misses everything in that case.
 
 ## Lever
 

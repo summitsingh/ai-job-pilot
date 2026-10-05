@@ -18,6 +18,12 @@ All notable changes to jobpilot are documented here. The format follows
   and new-ATS request.
 - `examples/queue.txt` and `examples/resume-map.json`.
 - Demo recording (`demo/demo.cast`, playable with `asciinema play`).
+- `ashby_graphql.py`: Ashby GraphQL form-template capture technique. Hooks
+  both `fetch` and `XMLHttpRequest` to watch outbound GraphQL requests and
+  stash the form-value mutation template (flexible operation-name match, not
+  hardcoded), plus a parameterized trigger snippet that forces Ashby to emit
+  a mutation. Direct-mutation filling is more reliable than DOM events, which
+  Ashby can silently discard server-side.
 
 ### Changed
 - README: install via pip, batch mode, code-gate flow, and a "proven on"

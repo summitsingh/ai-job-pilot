@@ -111,6 +111,8 @@ empty code boxes:
   zero model calls; unknown fields are skipped
 - `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py` — fill
   primitives over CDP
+- `ashby_graphql.py` — Ashby GraphQL mutation-template capture (fetch/XHR
+  hooks + trigger snippet); direct-mutation filling for Ashby forms
 - `verify.py`, `submit_only.py` — fill verification and submission
 - `cdp_driver.py`, `cdp_direct.py`, `common.py` — transport (stdlib-only
   driver, no venv needed on the browser host)
