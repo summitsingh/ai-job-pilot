@@ -25,6 +25,11 @@
   }
  ],
  "email": "alex.carter@example.com",
+ "essays": {
+  "llm_experience": "",
+  "devtools_experience": "",
+  "why_company": ""
+ },
  "ethnicity": "not Hispanic or Latino",
  "first_name": "Alex",
  "full_name": "Alex Carter",
