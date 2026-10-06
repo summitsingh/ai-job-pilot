@@ -142,6 +142,24 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(m["#ab"]["action"], "skip")
         self.assertTrue(m["#ab"].get("guard"))
 
+    def test_edu_dates_from_facts(self):
+        schema = {"fields": [
+            {"key": "#sm", "label": "Start Month", "type": "select",
+             "options": ["September", "June"]},
+            {"key": "#ey", "label": "End Year", "type": "text"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#sm"]["action"], "select")
+        self.assertEqual(m["#ey"]["action"], "fill")
+
+    def test_discipline_from_facts(self):
+        schema = {"fields": [
+            {"key": "#d", "label": "Field of Study", "type": "select",
+             "options": ["Computer Science", "Mathematics", "Other"]},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#d"]["action"], "select")
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):
