@@ -43,7 +43,11 @@ export TRACKER_BACKENDS="jsonl,sheets"
 ```
 
 `tracker.py` appends one row per record with `RAW` input mode, so
-posting text can never become a spreadsheet formula.
+posting text is stored as text rather than interpreted as a spreadsheet formula.
+The harness has no CSV export command. If you export this data elsewhere and
+open the CSV in Excel or another spreadsheet application, cells beginning with
+`=`, `+`, `-`, or `@` may be interpreted as formulas. Import those columns as text
+or neutralize formula prefixes in the export before opening it.
 
 ## Notion
 
@@ -55,7 +59,8 @@ No extra dependencies; the Notion backend uses stdlib `urllib` only.
    Title (title), Company, Location, Salary, Source (select), ATS
    (select), URL (url), Status (select), Date (date), Confirmation
    (rich_text), Sponsorship (rich_text), EEO (rich_text), Resume
-   (rich_text), Lane (rich_text), Notes (rich_text).
+   (rich_text), Lane (rich_text), Notes (rich_text), ID (rich_text),
+   Response Date (date), Furthest Stage (rich_text).
 3. Share the database with your integration (Share menu in Notion).
 4. Set env vars:
 
@@ -71,19 +76,31 @@ limit).
 ## IDs or URLs
 
 `TRACKER_SHEET_ID` and `TRACKER_NOTION_DB` accept either a bare ID or
-the full URL you copy from the browser. The ID is extracted for you.
+the full HTTPS URL you copy from the browser. URLs without a scheme are
+interpreted as HTTPS; explicit HTTP, FTP, and other schemes are rejected.
+The ID is extracted for you.
 
 - Sheets: `https://docs.google.com/spreadsheets/d/<ID>/edit...` gives
   `<ID>` (the segment after `/d/`). A value with no `/` and no `.` is
-  treated as a bare ID.
+  treated as a bare ID, which must contain at least 20 ASCII letters, digits,
+  underscores, or hyphens. Published `/d/e/` URLs are rejected.
 - Notion: a `notion.so` / `notion.site` URL whose last path segment ends
   in the 32-hex database ID (hyphenated or not) gives the hyphenated ID.
   The `?v=` query value is the view ID, not the database ID, and is
-  ignored. A bare 32-hex ID (with or without hyphens) also works.
+  ignored. A bare 32-hex ID or canonical `8-4-4-4-12` UUID also works;
+  arbitrary hyphen placement is rejected.
+
+Notion page and database URLs share the same ID shape. Offline parsing cannot
+distinguish them or verify access; copy the database URL and share that database
+with the integration. A page ID will be rejected later by the Notion API.
+Custom-domain Notion URLs are unsupported because their host does not prove they
+belong to Notion. Use the canonical `notion.so` / `notion.site` URL or the database
+ID instead.
 
 Anything that does not parse raises `ValueError` at startup (fail
-closed), so a typo can never silently point records at the wrong sheet
-or database. The pure helpers are `parse_sheets_id` and
+closed). Parsing validates the ID shape and host; it does not verify which
+sheet or database the ID identifies or whether the integration has access.
+The pure helpers are `parse_sheets_id` and
 `parse_notion_db_id` in `tracker.py`.
 
 ## Scoreboard and funnel analytics
@@ -92,10 +109,21 @@ or database. The pure helpers are `parse_sheets_id` and
   appends an event to a JSON file (`JOBPILOT_SCOREBOARD`, `--db`, or
   `scoreboard.json` next to the script); `show [--period day|week]
   [--lane <name>]` prints per-lane and overall totals (UTC day, or
-  trailing 7 days). Lane names are free-form, e.g. `JOBPILOT_LANE`.
+  trailing 7 days). Timestamps and the current time are normalized to UTC.
+  Events up to five minutes ahead of the clock are counted to tolerate clock
+  skew; a day report never includes events from the next UTC day. Lane names are
+  free-form, e.g. `JOBPILOT_LANE`. Concurrent writers use POSIX locks on one host;
+  Windows locking is a no-op, so run only one writer there. Atomic replacements
+  preserve the existing file permission mode and clean up temporary files on error.
 - `ai-job-pilot-analytics [--in applications.jsonl] [--json]` reports
   applied -> responded -> screening -> interview -> offer conversion,
-  overall and per company. Statuses are case-insensitive; anything
+  overall and per company. Repeated URLs are normalized with `job_queue.norm_url`
+  and counted once using the last record in file order; records without URLs
+  remain separate. The default input is `TRACKER_JSONL_PATH` when set, otherwise
+  `applications.jsonl` next to the script, independent of the working directory.
+  Tracker CLI writes still default to the current directory; use `--in PATH`
+  when reading a log there or elsewhere. Missing files produce a clear CLI error.
+  Statuses are case-insensitive; anything
   outside the fixed vocabulary is counted as `other` and listed. The
   median time-to-response needs a `response_date` (YYYY-MM-DD) on the
   record next to `date`; records without one are left out of the median.
@@ -115,5 +143,29 @@ them, so merge them in first or pass the fields as flags.
   aborting the others.
 - Tracking failures never lose an application: the lane logs tracker
   errors and keeps the submission result on disk.
+- Terminal tables strip ANSI escape sequences and control characters from
+  company and lane names; stored records retain their original text.
 - Never commit service-account keys, tokens, or spreadsheet IDs.
   They live in env vars or a local `.env` (gitignored).
+
+## Updating application progress
+
+The tracker accepts Applied, Responded, Screening, Interview, Offer, Rejected,
+Withdrawn, Skipped, Blocked, Dead, and Ready, case-insensitively. Records include
+`id`, `response_date`, and `furthest_stage` in addition to the existing fields.
+Sheets appends these three columns after the existing fields. Existing Notion
+databases need the three new properties listed above before new rows can be recorded.
+Update the latest local JSONL record by normalized URL or by id:
+
+```bash
+python3 tracker.py update --jsonl-path applications.jsonl --url URL --status interview --response-date 2026-10-06
+python3 tracker.py update --jsonl-path applications.jsonl --id ID --status rejected
+```
+
+This command updates local JSONL only; it does not update Sheets or Notion rows.
+It preserves the first response date, defaulting to today for a response status,
+and the furthest stage reached. Rejecting an Interview therefore retains Interview
+in the funnel; a rejection itself establishes Responded. Analytics counts Skipped,
+Blocked, Dead, and Ready in an `excluded` bucket. Other unknown statuses remain
+reported as `other`. Published Sheets `/spreadsheets/d/e/` links cannot identify
+an editable spreadsheet; use an edit URL or an ID of at least 20 characters.

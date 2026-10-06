@@ -26,7 +26,7 @@ deterministic.
 1. Clone the repo and install (stdlib only, no dependencies):
    ```bash
    git clone https://github.com/summitsingh/ai-job-pilot.git
-   cd jobpilot
+   cd ai-job-pilot
    pip install .
    ```
 2. Copy `facts.example.json` to `facts.json` and fill in the applicant's
@@ -42,7 +42,7 @@ deterministic.
    Then set `JOBPILOT_CDP_URL="127.0.0.1:9226"` (same-machine browser).
    For a remote browser host, set `JOBPILOT_SSH_HOST="user@host"` instead.
 4. Model: any OpenAI-compatible endpoint with strict JSON schema support.
-   Set `JOBPILOT_MODEL_URL` (default `http://127.0.0.1:1234/v1`, LM Studio).
+   Set `JOBPILOT_MODEL_URL` (default `http://127.0.0.1:1234`, LM Studio).
    If the model cannot do constrained JSON, the map step produces garbage;
    switch models, do not loosen the schema.
 5. The `resume_path` in `facts.json` must exist ON THE BROWSER HOST.
@@ -113,6 +113,11 @@ it, and verifies the confirmation page. Rules:
    evade bot checks.
 6. One application per run. Do not parallelize submissions to the same
    employer.
+
+7. Consent fields, including arbitration, certifications/attestations,
+   background-check and drug-test authorizations, and assessments, are
+   never auto-answered. Always stop for explicit human approval per application.
+8. Respect the employer automation blocklist in `modal_common.py`.
 
 ## Failure modes
 

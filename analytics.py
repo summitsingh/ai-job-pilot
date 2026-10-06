@@ -6,13 +6,16 @@ and reports how far applications progress through the funnel.
 
 Status vocabulary (case-insensitive): applied, responded, screening,
 interview, offer, rejected, withdrawn. Any other status is counted as
-"other" and listed in the report, never dropped silently.
+"other" and listed in the report, never dropped silently. Skipped, Blocked,
+Dead and Ready are counted separately as excluded non-applications.
 
 Funnel stages: applied -> responded -> screening -> interview -> offer.
 A record at a later stage counts toward every earlier stage (an offer
 implies it was applied to, responded to, screened and interviewed).
-rejected and withdrawn are terminal outcomes: they count as applied only.
-Each record is one application, so the status is its latest known stage.
+rejected and withdrawn are terminal outcomes that preserve furthest_stage.
+A rejection implies a response even when no prior stage was recorded.
+Repeated normalized URLs count once, using the last record in file order.
+Records without a URL remain separate applications.
 
 Time to response: median days from the record's date (the applied date)
 to its first non-applied status. The tracker stores one record per
@@ -21,20 +24,25 @@ carries "response_date" (YYYY-MM-DD); records without it are left out of
 the median rather than guessed.
 
 Usage:
-  python3 analytics.py                       # ./applications.jsonl
+  python3 analytics.py                       # applications.jsonl next to script
   python3 analytics.py --in applications.jsonl --json
 """
 import argparse
 import datetime
 import json
+import os
 import statistics
+
+from job_queue import norm_url
+from terminal_output import sanitize_terminal
 
 STATUSES = ("applied", "responded", "screening", "interview", "offer",
             "rejected", "withdrawn")
 STAGES = ("applied", "responded", "screening", "interview", "offer")
-# Terminal outcomes that reached no later funnel stage than "applied".
+# Minimum known stage; furthest_stage preserves later progress.
 _RANK = {"applied": 0, "responded": 1, "screening": 2, "interview": 3,
-         "offer": 4, "rejected": 0, "withdrawn": 0}
+         "offer": 4, "rejected": 1, "withdrawn": 0}
+EXCLUDED = {"skipped", "blocked", "dead", "ready"}
 
 
 def parse_records(lines):
@@ -68,16 +76,18 @@ def _day(value):
 
 
 def _bucket():
-    return {"counts": {s: 0 for s in STATUSES}, "other": 0,
+    return {"counts": {s: 0 for s in STATUSES}, "other": 0, "excluded": 0,
             "stages": {s: 0 for s in STAGES}, "days": []}
 
 
-def _add(b, status, days):
+def _add(b, status, days, reached):
     if status in _RANK:
         b["counts"][status] += 1
         for s in STAGES:
-            if _RANK[s] <= _RANK[status]:
+            if _RANK[s] <= reached:
                 b["stages"][s] += 1
+    elif status in EXCLUDED:
+        b["excluded"] += 1
     else:
         b["other"] += 1
     if days is not None:
@@ -93,7 +103,7 @@ def _rates(stages):
 
 
 def _finish(b):
-    return {"counts": b["counts"], "other": b["other"],
+    return {"counts": b["counts"], "other": b["other"], "excluded": b["excluded"],
             "stages": b["stages"], "conversion": _rates(b["stages"]),
             "median_days_to_response": (
                 statistics.median(b["days"]) if b["days"] else None),
@@ -106,14 +116,22 @@ def funnel_stats(records):
     Returns {"total", "overall", "companies": {name: stats},
     "unknown_statuses": {raw: n}}.
     """
+    latest = {}
+    for index, record in enumerate(records):
+        url = norm_url(record.get("url", "") or record.get("job_url", ""))
+        key = ("url", url) if url else ("row", index)
+        latest[key] = record
+    records = list(latest.values())
     overall = _bucket()
     comps = {}
     unknown = {}
     for r in records:
         raw = str(r.get("status", "") or "").strip()
         status = raw.lower()
-        if status not in _RANK:
+        if status not in _RANK and status not in EXCLUDED:
             unknown[raw or "(empty)"] = unknown.get(raw or "(empty)", 0) + 1
+        reached = max(_RANK.get(status, -1),
+                      _RANK.get(str(r.get("furthest_stage", "")).lower(), -1))
         days = None
         if status in _RANK and status != "applied":
             a, b = _day(r.get("date", "")), _day(r.get("response_date", ""))
@@ -122,7 +140,7 @@ def funnel_stats(records):
         name = str(r.get("company", "") or "").strip() or "(unknown)"
         c = comps.setdefault(name.lower(), dict(_bucket(), name=name))
         for bucket in (overall, c):
-            _add(bucket, status, days)
+            _add(bucket, status, days, reached)
     out_c = {}
     for k in sorted(comps):
         d = _finish(comps[k])
@@ -144,6 +162,7 @@ def format_report(stats, malformed=0):
         out.append("  %-10s %5d" % (s, o["stages"][s]))
     out.append("  rejected   %5d   withdrawn %5d   other %5d" % (
         o["counts"]["rejected"], o["counts"]["withdrawn"], o["other"]))
+    out.append("  excluded   %5d" % o["excluded"])
     out += ["", "conversion:"]
     for k, v in o["conversion"].items():
         out.append("  %-24s %s" % (k, _pct(v)))
@@ -162,20 +181,25 @@ def format_report(stats, malformed=0):
         s = c["stages"]
         md = c["median_days_to_response"]
         out.append("  %-24s %7d %9d %9d %9d %6d %8s" % (
-            c["name"][:24], s["applied"], s["responded"], s["screening"],
+            sanitize_terminal(c["name"])[:24], s["applied"], s["responded"], s["screening"],
             s["interview"], s["offer"], "n/a" if md is None else "%g" % md))
     return "\n".join(out)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--in", dest="inp", default="applications.jsonl",
-                    help="tracker JSONL file (default applications.jsonl)")
+    default_input = os.path.expanduser(os.environ.get("TRACKER_JSONL_PATH") or
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "applications.jsonl"))
+    ap.add_argument("--in", dest="inp", default=default_input,
+                    help="tracker JSONL file (TRACKER_JSONL_PATH or applications.jsonl next to script)")
     ap.add_argument("--json", action="store_true",
                     help="machine-readable output")
     a = ap.parse_args()
-    with open(a.inp) as f:
-        recs, bad = parse_records(f)
+    try:
+        with open(os.path.expanduser(a.inp)) as f:
+            recs, bad = parse_records(f)
+    except OSError as e:
+        ap.error("cannot read tracker log %r: %s; use --in to select a JSONL file" % (a.inp, e.strerror))
     stats = funnel_stats(recs)
     stats["malformed_lines"] = bad
     if a.json:

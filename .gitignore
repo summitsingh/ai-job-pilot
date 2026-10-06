@@ -1,5 +1,22 @@
 # Applicant's private data - never commit
 facts.json
+.env
+.env.*
+!.env.example
+applications.jsonl
+queue.json
+claims.jsonl
+scoreboard.json
+*-telemetry.jsonl
+*-fingerprints.jsonl
+*.lock
+*-sa-key.json
+service-account*.json
+service_account*.json
+credentials.json
+token.json
+*.pem
+*.key
 
 # Python
 __pycache__/
@@ -14,7 +31,26 @@ result.json
 fill-result.json
 /tmp/
 shots/
+workdir/
+schema.json
+mapping.json
+map.json
+answers.json
+fill.json
+verify.json
+code_gate.json
+fill.png
+prefill.png
+dryrun.png
+resume-map.json
+!examples/resume-map.json
+resumes/
+resume*.pdf
+resume*.docx
+resume*.doc
+prompts/*.log
 
 # Local lane config (copy of config.example.json)
 config.json
 model_telemetry.jsonl
+dist/
