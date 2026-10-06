@@ -1,0 +1,63 @@
+You are fixing audit findings in the ai-job-pilot repo at /home/hatch/workspace/jobpilot-staging (your working directory; it is NOT a git checkout, edit files in place, do not commit or push anything).
+
+FIRST: read /home/hatch/workspace/jobpilot-staging/docs/audits/REPORT-claude-2026-10-06-features.md in FULL. It lists 1 SEVERE, 21 MAJOR, 39 MINOR findings. This run fixes the SEVERE and all 21 MAJORs (the 39 MINORs are a separate later run; do not fix them now unless one is a trivial one-line consequence of a MAJOR fix).
+
+HARD CONSTRAINTS (do not violate):
+- No em dashes (U+2014) anywhere, in code, comments, docs, or tests. Use hyphens or commas.
+- Stdlib preferred for any new code. Python 3.12.
+- Tests offline only: no browser, no model server, no network. The suite is `python3 -m unittest test_operation test_offline test_reliability test_tracking test_human` (currently 125 tests, all green). Keep it green.
+- Consent invariants stay intact: consent fields (arbitration, certifications/attestations, background-check, drug-test, assessments) are never auto-answered; deterministic patterns first; gates fail closed; the code gate stays human-in-the-loop and is never bypassed.
+- Do not guess at applicant facts anywhere; keep "skip when unknown" behavior.
+
+WORK TO DO (priority order):
+
+1. SEVERE S1: code-gate flow contradiction (lane_greenhouse.py:386-388 vs :412-419, :553-555; docs/queue.md:33-35,76-83; CHANGELOG.md:64-65).
+   Implement ONE consistent flow: after the human supplies the code and the submit is CONFIRMED (confirmation page verified), call `mark applied` and record a tracker `Applied` row. `requeue` is reserved ONLY for a failed or expired code attempt. Add an attempt cap: max 3 code-gate attempts per job; after 3 failures, mark the job `blocked` with evidence (never requeue again). A job that was requeued and then applied must NEVER be re-submitted: before any submit, check the tracker/queue state and skip jobs already marked applied. Update lane_greenhouse.py, codegate.py, docs/queue.md, AGENTS.md, and CHANGELOG.md so code and docs all agree.
+
+2. codegate.py MAJORs (tie into #1):
+   - Timeout requeue: add an attempts counter with a cap, then leave the job blocked for a human. Surface the requeue callback result instead of ignoring it (coordinate must not return `timeout` when requeue returned False).
+   - Distinct "no-input" result: stdin EOF (</dev/null, detached runs), Windows (select on stdin raises OSError), and UnicodeDecodeError must return a distinct result (e.g. `no_input`), NOT `timeout`, so a missing human does not trigger an immediate requeue. Handle no-input by leaving the job blocked with evidence.
+   - MINOR 13/14 are minor (skip), but if you touch validation, use re.fullmatch(r"[A-Za-z0-9]{8}", code).
+
+3. --dry-run must be side-effect free (lane_greenhouse.py:408-452,531-541): when dry_run is set, for ANY outcome (including the exception path) always release the claim and skip tracker writes and queue marking. Never mark jobs terminal (Blocked/Dead), never write claims as final, never touch the tracker in dry-run mode.
+
+4. setup_wizard.py: never echo raw tokens/secrets to stdout. Mask credential values in the printed export lines (show first 4 and last 4 chars max, e.g. `export TRACKER_NOTION_TOKEN=sk-a***9f2x`), or print placeholders like `export TRACKER_NOTION_TOKEN=<your token>`. Applies to :129-131 and :196-199, including `--yes` mode where the value comes from the environment.
+
+5. setup_wizard.py default directory MAJOR (:43,160,163,200): the default directory is the script directory (site-packages after pip install). Change the default to the current working directory, and print the JOBPILOT_CONFIG export line when the config is written to a non-default location so config.py:23 will find it. Keep --directory working.
+
+6. .gitignore must cover .env and all PII/state files. Add: .env, applications.jsonl, queue.json, claims.jsonl, scoreboard.json, *-telemetry.jsonl (including model_telemetry.jsonl already there), *.lock, service-account key files (*.pem is secret-adjacent but generic; add patterns for common key names like *-sa-key.json, service-account*.json). Audit the repo for anything personal that could leak (facts.json is already covered) and gitignore it. docs/tracking.md:118-119 says the local .env is gitignored; make that true.
+
+7. submit_watchdog.py:
+   - :153-160: never skip the JS-click rung on a normal-click miss. Record the miss and continue to the next rung; only report "control not found" after both rungs fail.
+   - :148-161: guard against double-submit. Only one submit attempt in flight: verify state (URL/text/confirmation) between rungs, wait longer before the first re-click, allow at most one re-click total, and prefer `blocked` with evidence when the state is ambiguous (e.g. URL unchanged with no confirmation text).
+
+8. sweep.py:359-368: wrap the queue read-modify-write in `with Store(a.queue)` (the Store lock) so the sweep can never overwrite a lane's mark() and flip an applied job back to pending.
+
+9. sweep.py fuzzy dedup headline case (:327-331,164-193): fuzzy matching must catch a role already applied to that is reposted under a NEW URL in a LATER sweep. Implement a persistent fingerprint store (e.g. a JSONL file of normalized title+company+location fingerprints of applied/seen jobs, gitignored) that each sweep run loads and checks new candidates against, appending new fingerprints as it queues. Keep it offline and stdlib.
+
+10. Wire up or honestly relabel (dead features documented as shipped is not acceptable):
+    - model.py `budgeted_chat`: route the real call sites through it: map.py:477, extract.py:64, verify.py:42 (they currently call model.chat directly, so the token ceiling, wall budget, and telemetry never apply). Also fix: the timed-out daemon thread keeps running chat() (:285-299); pass a deadline or threading.Event into chat() and check it between attempts and models; cap the per-request timeout to the remaining budget.
+    - job_queue.py heartbeat: actually call heartbeat() from lane_greenhouse.py at sensible points during a run (e.g. after claim, before submit, after submit). If the 6-hour TTL makes per-run heartbeats pointless, add a shorter lane-activity TTL or document why; at minimum the lane must call it.
+    - codegate.py coordinate/Notifier: wire coordinate() into the lane's code-gate path (it is currently called only from test_human.py). If wiring is genuinely out of scope for a safe offline change, downgrade docs/queue.md, CHANGELOG.md, and README.md entries for codegate to honestly say "library-only / experimental, not wired into the lane".
+    Whichever you choose per feature, docs and code must agree.
+
+11. Analytics status vocabulary (analytics.py:32-37 vs tracker.py:59,69):
+    - tracker.py must accept and record these statuses: applied, responded, screening, interview, offer, rejected, withdrawn (in addition to the existing ones). Keep it case-tolerant.
+    - Add a way to update a record's status: a `tracker.py update` CLI command (by URL or id) that appends/updates the status, and records response_date.
+    - Add `response_date` to tracker.FIELDS (currently build_record silently drops it, making the analytics median unreachable).
+    - Track the furthest stage reached: a rejection after an interview must not erase the interview (rejected/withdrawn currently rank 0). Non-application rows (Skipped, Blocked, Dead, Ready) go in an "excluded" bucket, not "unknown".
+
+12. location_check.py MAJORs:
+    - :112-118: a comma-only list breaks cities that are also state names ("New York, NY" -> ["New York","NY"], both unusable). Fix: when parsing the descriptor list, glue a following bare state token to the previous city token when the previous token is not already a state (so "New York, NY" stays one descriptor). Warn (stderr, not silent) when a descriptor is unusable.
+    - :101-109,144-146: validate location descriptors ONCE at lane startup and fail fast with a clear error message instead of marking every queued job blocked one at a time. A malformed JSON array must not raise inside run_job.
+    - :154-155: require city and state tokens to be adjacent within one segment: split the job location value on `;`, `|`, and "or", require city and state within the same segment, and reject negations ("not", "except", "excluding").
+
+13. tracker.py URL parsing (:115-119): for published-sheet URLs like /spreadsheets/d/e/2PACX-.../pubhtml the regex captures "e" as the ID. Reject /d/e/ paths and require a realistic ID length (Google Sheet IDs are ~44 chars; require at least ~20).
+
+14. SKILL.md MAJOR (:102-115): add the missing safety invariants to the listed set: consent fields (arbitration, certifications/attestations, background-check, drug-test authorizations, assessments) are never auto-answered and always stop for explicit human approval, and the modal_common employer blocklist. AGENTS.md already documents both; SKILL.md must not omit them.
+
+REGRESSION TESTS: add tests to the existing test files (test_operation.py, test_offline.py, test_reliability.py, test_tracking.py, test_human.py) covering: the code-gate confirmed-applied vs failed-requeue flow with the attempt cap (no re-submit of an applied job); dry-run side-effect-free (no queue marks, no tracker writes, claim released); wizard secret masking (no raw token on stdout); watchdog ladder (JS-click rung reached after normal-click miss; single re-click max; ambiguous state -> blocked); sweep queue write under Store lock. All tests offline.
+
+DOCS: update docs/CHANGELOG.md (new entries at top under an Unreleased/2026-10-06 section), docs/queue.md (code-gate flow, codegate wiring status), docs/setup.md if wizard behavior changed, README.md and AGENTS.md layout/behavior sections where behavior changed. Keep docs and code in agreement.
+
+WHEN DONE: run `python3 -m unittest test_operation test_offline test_reliability test_tracking test_human` from /home/hatch/workspace/jobpilot-staging and confirm green. Then write a short summary to /home/hatch/workspace/jobpilot-staging/prompts/round1-summary.txt listing: each MAJOR/SEVERE finding disposition (fixed / not-fixed-with-reason), files changed, final test count, and any behavior decision you made (e.g. wire vs relabel choices). Do not commit or push.

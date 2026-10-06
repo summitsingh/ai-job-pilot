@@ -1,0 +1,92 @@
+Round 2 audit summary - 2026-10-06
+
+All MINOR 1-39 are fixed or verified already fixed by round 1. None deferred.
+Read the entire feature audit and round1-summary before implementation.
+Edited in place; no git checkout operations, commits or pushes.
+
+MINOR 01 fixed: watchdog observation failures return blocked with ladder/click evidence.
+MINOR 02 fixed: finite watchdog wait range 1..120s, default 30; poll/recheck bounds too.
+MINOR 03 fixed: compare error-bearing lines with pre-click baseline, including initial fallback.
+MINOR 04 fixed: lane imports shared watchdog code-gate/confirmation regexes.
+MINOR 05 fixed: ambiguous English state tokens require comma or uppercase state context.
+MINOR 06 fixed: empty default metros; lane validates configured descriptors before claims.
+MINOR 07 fixed: applicant fields scoped separately from employer willingness/location questions.
+  Split city/state fields are paired so components cannot borrow different allowed metros;
+  city/state/country components are checked appropriately. Postal values use fill readback,
+  since a ZIP alone cannot be compared to a metro without geographic data.
+MINOR 08 fixed: scoreboard documents POSIX locking and Windows single-writer limitation.
+MINOR 09 fixed: scoreboard temporary files cleaned on failure; existing file mode preserved.
+MINOR 10 fixed: scoreboard tolerates five-minute future skew and documents UTC calendar days.
+MINOR 11 fixed: analytics deduplicates normalized URLs; latest JSONL record wins.
+MINOR 12 fixed: stable analytics default path, environment override, friendly missing-file error.
+MINOR 13 fixed: round 1 alphanumeric coordinator validation verified with regression cases;
+  manual code_gate CLI also rejects non-ASCII/non-alphanumeric codes.
+MINOR 14 fixed: module docstrings distinguish coordinator library from browser CLI;
+  unused requeue lane argument removed. claims_path is now used for Applied history,
+  so retained consistently in the real signature and callback.
+MINOR 15 fixed: dry-run existing config prints concrete would-overwrite path without force.
+MINOR 16 fixed: atomic config publication after initialization/startup succeeds;
+  force uses os.replace, no-force uses exclusive atomic link, temporary files cleaned.
+MINOR 17 fixed: model telemetry rotates at 5 MiB with two backups; process lock limitation
+  documented. Thread lock added; telemetry contains metadata, never prompt/response text.
+MINOR 18 fixed: nonpositive/non-finite explicit and environment wall budgets default to 300s.
+MINOR 19 fixed: heartbeat CLI distinguishes no-live-claim from not-owner; round 1 lane
+  heartbeat checkpoints retained.
+MINOR 20 fixed: positive finite TTLs bounded 5m..24h with round 1 six-hour default retained;
+  corrupt/future timestamps repaired once under lock, preserving a bounded owner lease.
+MINOR 21 fixed: default owner token lane-1@hostname#pid. Wizard omits implicit lane setting
+  so fresh setup preserves the per-process default. Explicit configured identities retained.
+MINOR 22 fixed: mark/release CLI use same unique defaults; atomic mark diagnostics distinguish
+  not-owner/not-found. Docs explain separate-process owner tokens and explicit admin override.
+MINOR 23 fixed: URL port parsing stays inside ValueError handling.
+MINOR 24 fixed: seniority remains in dedup identity; separate matching openings withheld only
+  for human review. Unique URL-only review artifacts saved, including stats-only/dry-run.
+MINOR 25 fixed: NFKD/casefold Unicode normalization, distinct C++/C# tokens and language keys.
+MINOR 26 fixed: common US state names/abbreviations normalize alike without merging states.
+MINOR 27 fixed: keys computed once; comparisons bucketed by company/location/seniority.
+MINOR 28 fixed: existing round 1 Sheets minimum 20-character IDs verified; HTTPS-only URLs.
+MINOR 29 fixed: canonical Notion UUID hyphen validation; documented accepted forms,
+  database/page ambiguity and custom-domain limitation.
+MINOR 30 fixed: shared terminal sanitizer strips ANSI and ASCII/C1 controls from analytics,
+  scoreboard and lane output/table values. No CSV exporter found; downstream formula risk
+  documented. Sheets remains RAW.
+MINOR 31 fixed: tracker confirmation evidence is recognized phrase plus URL, excluding raw
+  page snippets. Gate-confirmation evidence uses the same privacy boundary.
+MINOR 32 fixed: shlex.quote remote model names for load/unload commands.
+MINOR 33 fixed: config example and loader docstring identify environment-only model and
+  tracker credentials/options; TRACKER_BACKENDS retains existing file support.
+MINOR 34 fixed: SKILL clone directory ai-job-pilot and model base URL without /v1.
+MINOR 35 fixed: README layout includes wizard/coordinator/setup docs and shared sanitizer;
+  AGENTS round 1 module layout verified and extended. Mapping/other bounded calls clarified.
+MINOR 36 fixed: verified round 1 changelog already describes blocked code wait and Applied
+  confirmation, with requeue reserved for failed/expired attempts.
+MINOR 37 fixed: setup docs describe masked placeholders, cwd default, JOBPILOT_CONFIG export,
+  dry-run overwrite, atomic publication and explicit metro/owner configuration.
+MINOR 38 fixed: heartbeat command includes --claims; docs state actual three lane checkpoints.
+MINOR 39 fixed: historical audit punctuation already normalized in round 1; swept all
+  relevant text formats again and confirmed no U+2014 anywhere in the requested scan.
+
+Additional review corrections:
+- Manual code-gate CLI shares all accepted watchdog confirmation phrases.
+- Lane enforces modal_common employer blocklist before its first browser action.
+- Preserve split-address coherence and keep terminal-sanitized review tables multiline.
+
+Files changed this round:
+submit_watchdog.py; location_check.py; lane_greenhouse.py; codegate.py; code_gate.py;
+scoreboard.py; analytics.py; tracker.py; terminal_output.py (new); setup_wizard.py;
+model.py; config.py; config.example.json; job_queue.py; sweep.py; pyproject.toml;
+test_operation.py; test_reliability.py; test_tracking.py; test_human.py;
+README.md; AGENTS.md; SKILL.md; CHANGELOG.md; docs/CHANGELOG.md; docs/queue.md;
+docs/setup.md; docs/sweep.md; docs/tracking.md;
+docs/superpowers/plans/2026-10-06-audit-round2.md (new);
+prompts/round2-summary.txt (this file).
+Historical docs/audits/*.md verified clean; no additional punctuation edits needed.
+
+Verification:
+python3 -m unittest test_operation test_offline test_reliability test_tracking test_human
+218 tests passed, zero failures/errors. 55 tests added beyond round 1's 163.
+Per module: operation 54, offline 18, reliability 50, tracking 48, human 48.
+Python 3.12; no browser, model server or network used.
+Exact requested grep pipeline: no output (no matching U+2014); grep exit 1 means no matches.
+Consent blockers, deterministic-first mapping, fail-closed submission gates, human codes,
+Applied-history safeguards and bounded attempts remain intact.

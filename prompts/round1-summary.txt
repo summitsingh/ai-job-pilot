@@ -1,0 +1,75 @@
+Round 1 audit summary - 2026-10-06
+
+S1 fixed: human code confirmation marks queue Applied and records tracker Applied.
+Failed/expired attempts alone can requeue for a later run; 3 persisted attempts
+maximum. Applied queue/claims/tracker history guards initial, recovery and code
+submits. Applied entries cannot be downgraded or requeued.
+
+All 21 MAJOR findings fixed (numbered here in report order):
+01 submit_watchdog normal miss: JS fallback reached after another state check.
+02 submit_watchdog double-submit: 30-second default settle, explicit retry-safe
+   evidence, at most one successful recovery click, ambiguous/in-flight blocked.
+03 location comma descriptors: New York, NY and Washington, DC preserved;
+   unusable descriptors warn to stderr.
+04 location configuration: validate once before claims, malformed JSON fails fast.
+05 location composite/negated values: adjacent city/state in one segment;
+   semicolon, pipe and or split segments; negations fail closed.
+06 analytics/tracker vocabulary: response stages accepted case-insensitively,
+   local update CLI by normalized URL/id, non-applications excluded.
+07 analytics terminal outcomes: furthest_stage survives rejection/withdrawal.
+08 analytics response median: response_date retained and update records first
+   response date. Sheets/Notion new records retain added progress fields.
+09 codegate timeout retries: persisted cap, callback False surfaced as blocked.
+10 codegate unavailable stdin: EOF, unsupported select and decoding errors return
+   no_input; no automatic requeue.
+11 codegate dead feature: coordinate and CliNotifier wired into the lane.
+12 setup credential echo: placeholders on stdout, including --yes environment.
+13 setup install directory: defaults to cwd, --directory retained, alternate
+   config write prints JOBPILOT_CONFIG export.
+14 model runaway retries: cooperative deadline/Event cancellation, bounded
+   request/probe timeouts and backoff; no retries/models after budget expiry.
+15 model dead budget feature: map/extract/verify call budgeted_chat.
+16 sweep later reposts: persistent normalized role fingerprints plus applied
+   history checked across runs, including legacy job_url records.
+17 sweep queue race: entire read-modify-write holds Store queue lock.
+18 tracker sheet parsing: published /d/e/ links and IDs under 20 chars rejected.
+19 gitignore: .env, PII/state, locks, telemetry, fingerprints, keys and run
+   artifacts covered. Source audit found no actual personal facts/resume/key files.
+20 SKILL safety omissions: explicit human consent and employer blocklist added.
+21 lane dry-run: every outcome releases claim; no terminal queue/tracker writes,
+   including runtime, heartbeat and finalization exception paths.
+
+Additional requested wiring: lane heartbeat after claim, before submit, after
+submit. Existing 6-hour TTL retained and documented because the pipeline/code
+wait is bounded well below it. Gates and truthful unknown-fact skips unchanged.
+
+Behavior decisions:
+- Wire codegate, budgeted_chat and heartbeat, rather than relabel as experimental.
+- Retry an explicit expired/invalid code response; block ambiguous code submits.
+- Missing stdin stays blocked for a human. Requeues stop the current lane run.
+- Live CDP watchdog cannot prove an ambiguous submit safe to retry, so it blocks.
+  Initial JS fallback requires an explicit selector miss, not a lost CDP response.
+- Model cancellation is cooperative. An in-flight socket read cannot be forcibly
+  killed; its timeout is capped, late results discarded and no later calls made.
+- Tracker update edits local JSONL only; remote update is not claimed. Existing
+  Notion databases need ID, Response Date and Furthest Stage properties.
+- Substantive MINOR findings deferred. Alphanumeric gate validation was a trivial
+  consequence of changing coordinate; historical audit punctuation was normalized
+  solely to satisfy the hard no-em-dash constraint.
+
+Files changed:
+.gitignore; lane_greenhouse.py; codegate.py; job_queue.py; submit_watchdog.py;
+location_check.py; setup_wizard.py; sweep.py; model.py; map.py; extract.py;
+verify.py; tracker.py; analytics.py; test_operation.py; test_reliability.py;
+test_tracking.py; test_human.py; README.md; AGENTS.md; SKILL.md; CHANGELOG.md;
+docs/CHANGELOG.md (new); docs/queue.md; docs/setup.md; docs/sweep.md;
+docs/tracking.md; docs/superpowers/plans/2026-10-06-audit-round1.md (new).
+Punctuation-only audit docs: REPORT-claude-2026-10-06-operation.md,
+REPORT-claude-2026-10-05-night.md, REPORT-codex-2026-10-05-night.md,
+REPORT-codex-2026-10-05.md, under docs/audits/.
+prompts/round1-summary.txt (this file).
+
+Final verification: Python 3.12.3, offline command
+python3 -m unittest test_operation test_offline test_reliability test_tracking test_human
+163 tests passed, zero failures/errors. Original 125 retained, 38 added.
+No browser, model server or network used. No commits or pushes.

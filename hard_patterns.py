@@ -45,6 +45,69 @@ def _eval_js(port, js, timeout=60):
     return cdp_ok(port, "evalb64", b64(js), timeout=timeout)["result"]
 
 
+# --- Sponsorship hard-pattern (2026-10-06) ---
+# Work-authorization questions must resolve to Yes / will-require-sponsorship
+# and NEVER to a country-specific visa option. A prior run picked
+# "Netherlands Highly Skilled Migrant Visa" on one employer's sponsorship
+# question via substring fallback. This pattern guarantees sponsorship
+# questions ALWAYS pick a safe option and fail loudly when none exists.
+SPONSORSHIP_WANTS = [
+    "Yes",
+    "Yes, I will require sponsorship",
+    "Yes, but will require sponsorship in the future",
+    "will require sponsorship",
+    "Yes, I require sponsorship",
+]
+
+COUNTRY_VISA_RE = re.compile(
+    r"\b(netherlands|germany|france|ireland|united kingdom|\buk\b|canada|"
+    r"australia|singapore|japan|india|spain|italy|sweden|switzerland|"
+    r"poland|portugal|belgium|austria|denmark|norway|finland)\b.{0,40}\bvisa\b"
+    r"|\bvisa\b.{0,40}\b(netherlands|germany|france|ireland|united kingdom|\buk\b|"
+    r"canada|australia|singapore|japan|india|spain|italy|sweden|switzerland|"
+    r"poland|portugal|belgium|austria|denmark|norway|finland)\b"
+    r"|\bhighly skilled migrant\b|\bknowledge migrant\b|\bskilled worker\b",
+    re.IGNORECASE)
+
+
+def is_country_visa_option(text):
+    """True if the option text names a country-specific visa/work permit."""
+    return bool(COUNTRY_VISA_RE.search(text or ""))
+
+
+def is_sponsorship_field(field_key, wanted_value=""):
+    """True if the field looks like a sponsorship/visa question."""
+    hay = ((field_key or "") + " " + (wanted_value or "")).lower()
+    return ("sponsor" in hay or "visa" in hay or "work permit" in hay
+            or "work authorization" in hay)
+
+
+def pick_sponsorship_option(options, wants=None):
+    """Pick the safe sponsorship option from a list of option texts.
+
+    Returns (index, text). NEVER returns a country-specific visa option;
+    returns (None, None) when no safe option exists so the caller fails
+    loudly instead of mis-picking.
+    """
+    wants = wants or SPONSORSHIP_WANTS
+    wl = [w.lower() for w in wants]
+    for i, t in enumerate(options):  # pass 1: exact match
+        text = (t or "").strip()
+        if not text or is_country_visa_option(text):
+            continue
+        if text.lower() in wl:
+            return i, t
+    for i, t in enumerate(options):  # pass 2: substring match
+        text = (t or "").strip()
+        if not text or is_country_visa_option(text):
+            continue
+        tl = text.lower()
+        for w in wl:
+            if w in tl or tl in w:
+                return i, t
+    return None, None
+
+
 def _unescape_css_id(key):
     """Turn CSS escapes into the plain id: '#\\34 011230003' -> '#4011230003'.
 
@@ -240,6 +303,16 @@ def fill_react_select(port, field_key, option_text):
         raise RuntimeError(
             f"react-select verification failed for key: {field_key}: "
             f"expected {wanted}, saw {actual}")
+    # Sponsorship guard (2026-10-06): never leave a country-specific
+    # visa selected on a sponsorship question.
+    _wanted_txt = option_text if isinstance(option_text, str) else " ".join(option_text)
+    if is_sponsorship_field(field_key, _wanted_txt):
+        _picked = [ver.get("single") or ""] + list(ver.get("multi") or [])
+        for _p in _picked:
+            if _p and is_country_visa_option(_p):
+                raise RuntimeError(
+                    f"sponsorship guard: country-specific visa selected "
+                    f"({_p!r}) for key: {field_key}; refusing")
 
 
 def _checkbox_scope_sel(name_attr):

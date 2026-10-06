@@ -53,6 +53,81 @@ for (const it of items) {
 return out; })()""")
 
 
+def toggle_option(value):
+    value = str(value).strip().lower()
+    if value in ("yes", "true", "1"):
+        return "yes"
+    if value in ("no", "false", "0"):
+        return "no"
+    return None
+
+
+def is_yesno_toggle(field, selector, value):
+    ftype = (field.get("type") or "").lower()
+    return ("yesno" in ftype.replace("-", "").replace("_", "") or
+            "ashby-application-form-input-yesno-option" in selector or
+            (ftype not in ("checkbox", "radio") and toggle_option(value) is not None))
+
+
+def react_toggle_resolver_js():
+    # Shared by click and readback so both resolve the desired button.
+    return r"""
+const toggleOption = s => {
+  const v=String(s).trim().toLowerCase();
+  return ['yes','true','1'].includes(v)?'yes':
+         ['no','false','0'].includes(v)?'no':null;
+};
+const resolveToggle = (selector, desired) => {
+  const seed=document.querySelector(selector), want=toggleOption(desired);
+  if(!seed||!want)return null;
+  const buttons='button[data-option]';
+  const boundary=seed.closest('[data-field-path]');
+  let group=seed.matches(buttons)?seed.parentElement:seed;
+  while(group){
+    const opts=Array.from(group.querySelectorAll(buttons));
+    if(opts.some(b=>toggleOption(b.getAttribute('data-option'))==='yes')&&
+       opts.some(b=>toggleOption(b.getAttribute('data-option'))==='no')){
+      return opts.find(b=>toggleOption(b.getAttribute('data-option'))===want)||null;
+    }
+    if(group===boundary)break;
+    group=group.parentElement;
+  }
+  return null;
+};
+"""
+
+
+def click_react_toggle_js(selector, desired):
+    """Ensure the desired yes/no button is pressed, without toggling it off.
+
+    Ashby yes/no buttons are independent toggles: a blind click can unset
+    an already-selected answer. This resolves the button for `desired` and
+    clicks it only when it is not already pressed (aria-pressed=true)."""
+    return ("(async () => {" + react_toggle_resolver_js() +
+            "const selector=" + json.dumps(selector) +
+            ", desired=" + json.dumps(desired) + ";" + r"""
+let el=resolveToggle(selector,desired);
+if(!el)return {ok:false,already:false,pressed:null,why:'no-toggle-option'};
+if(el.getAttribute('aria-pressed')==='true')return {ok:true,already:true,pressed:'true'};
+el.scrollIntoView({block:'center',behavior:'instant'});
+try{el.click();}catch(e){}
+await new Promise(r=>setTimeout(r,600));
+el=resolveToggle(selector,desired);
+if(el&&el.getAttribute('aria-pressed')!=='true'){
+  const key=Object.keys(el).find(k=>k.indexOf('reactProps')>0);
+  const props=key&&el[key];
+  if(props&&typeof props.onClick==='function'){
+    try{props.onClick({currentTarget:el,target:el,preventDefault(){},stopPropagation(){}});}catch(e){}
+    await new Promise(r=>setTimeout(r,600));
+  }
+}
+el=resolveToggle(selector,desired);
+const pressed=el?el.getAttribute('aria-pressed'):null;
+return {ok:pressed==='true',already:false,pressed:pressed,
+        why:pressed==='true'?'':'toggle-not-pressed'};
+})()""")
+
+
 def readback_js(items_b64):
     # items: [{key, type, grouped?, gscope?, ginputs?, option_label?}]
     return ("(() => { const items=" + js_decode_b64("B64").replace("B64", items_b64) + ";" + r"""
@@ -548,11 +623,24 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                                       "applied": ok2c,
                                       "note": r.get("why", "")})
             else:
-                # Singleton click: for checkboxes, use native label.click()
-                # (opacity-0 custom inputs ignore coordinate clicks).
-                # For other types (buttons, radios), use coordinate fclick.
+                # Singleton click: idempotent yes/no toggle first (Ashby
+                # yes/no buttons are independent toggles; a blind click can
+                # unset an already-selected answer), then native checkbox
+                # label click, else a coordinate fclick.
                 ftype = (f.get("type") or "").lower() if f else ""
-                if ftype == "checkbox":
+                if is_yesno_toggle(f, m["field"], m.get("value")):
+                    desired = (toggle_option(m.get("value"))
+                               or toggle_option(f.get("option_label")))
+                    r = cdp_ok(port, "evalb64",
+                               b64(click_react_toggle_js(m["field"], desired)),
+                               timeout=60)["result"]
+                    per_field.append({"field": m["field"], "action": "click",
+                                      "expected": m["value"],
+                                      "applied": bool(r.get("ok")),
+                                      "note": ("already-pressed"
+                                               if r.get("already")
+                                               else r.get("why", ""))})
+                elif ftype == "checkbox":
                     # native click via the associated label
                     js = ("(() => { const el = document.querySelector(" +
                           json.dumps(m["field"]) + "); if (!el) return {ok:false, why:'not-found'}; " +
