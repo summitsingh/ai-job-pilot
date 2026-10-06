@@ -24,9 +24,10 @@ Real verification numbers from production use:
 - **Ashby + Lever:** 82/82 fields verified across 8 real forms, zero model calls
 - **Workable:** 7/9 fill actions verified on a live form (2026-10-04); the 2
   failures were address-autocomplete sub-fields, no Workable-specific code needed
-- **Offline tests:** 51/51 passing (18 fill-core + 33 queue/tracker/
-  sweep/launcher/config), no browser, model, or network required.
-  Run with `python3 -m unittest test_offline test_operation`
+- **Offline tests:** 125 tests (18 fill-core + 33 queue/tracker/
+  sweep/launcher/config + 24 reliability + 28 tracking + 22 human/setup), no browser, model,
+  or network required. Run with
+  `python3 -m unittest test_offline test_operation test_reliability test_tracking test_human`
 - **Live submits:** confirmed via `/confirmation` URL plus "Thank you for applying" page text
 
 ## Install
@@ -37,23 +38,30 @@ cd ai-job-pilot
 pip install .
 ```
 
-This provides eight console scripts:
+This provides eleven console scripts:
 
 | Command | Purpose |
 |---|---|
 | `ai-job-pilot` | Fill a single application (dry-run or submit) |
 | `ai-job-pilot-batch` | Run a queue of posting URLs with dedup and per-application confirmation |
 | `ai-job-pilot-code-gate` | Handle Greenhouse's email verification code gate |
+| `ai-job-pilot-setup` | Guided setup with non-secret config and credential exports |
 | `ai-job-pilot-launch` | Open N headful Chrome browsers, one per lane |
 | `ai-job-pilot-lane` | Work a shared queue with cross-lane claims (Greenhouse) |
-| `ai-job-pilot-queue` | Inspect and manage the shared queue (`next`/`claim`/`mark`/`requeue`) |
+| `ai-job-pilot-queue` | Inspect and manage the shared queue (`next`/`claim`/`heartbeat`/`mark`/`requeue`) |
 | `ai-job-pilot-sweep` | Filter raw postings into vetted queue candidates |
 | `ai-job-pilot-track` | Record applications (JSONL, Google Sheets, Notion) |
+| `ai-job-pilot-scoreboard` | Per-lane day/week totals of applied/skipped/blocked/dead |
+| `ai-job-pilot-analytics` | Funnel conversion and time-to-response over the tracker JSONL |
 
 Or skip the install and run the scripts directly with Python 3.9+.
 The core is standard-library only, no virtualenv needed. The optional
 Google Sheets tracker backend needs `google-api-python-client` and
 `google-auth` (`pip install google-api-python-client google-auth`).
+
+For guided setup, run `ai-job-pilot-setup` after creating your real
+`facts.json`. See [the setup wizard guide](docs/setup.md) for the flow,
+credential exports, and `--yes --dry-run`.
 
 ## How it works
 
@@ -395,6 +403,16 @@ private; it is gitignored by default.
 - `test_offline.py` - 18 offline unit tests for the fill core
 - `test_operation.py` - 33 offline unit tests for queue, tracker,
   sweep, launcher, and config (no browser/model needed)
+- `test_reliability.py` - 24 offline unit tests for the submit watchdog,
+  location verifier, and budgeted model calls
+- `submit_watchdog.py`, `location_check.py` - lane reliability modules
+  (swallowed-submit recovery, location autocomplete check)
+- `test_tracking.py` - 28 offline unit tests for tracker URL parsing,
+  scoreboard, funnel analytics, and fuzzy dedup
+- `scoreboard.py`, `analytics.py` - lane scoreboard and funnel analytics
+  (`ai-job-pilot-scoreboard`, `ai-job-pilot-analytics`)
+- `test_human.py` - 22 offline tests for heartbeats, code coordination,
+  field-map review, and setup
 - `test_*.py` - live-browser integration tests (`--no-submit` only)
 - `docs/ats-notes.md` - Greenhouse, Ashby, Lever, and Workable quirks
   learned in production

@@ -41,6 +41,17 @@ A claim counts as live only while `in-progress` and younger than
 stops blocking the queue after that window, and the claims log shows
 exactly which lane held it and when.
 
+## Heartbeats
+
+While working a job, lanes should heartbeat every N minutes (for example,
+every 5 minutes): `python3 job_queue.py heartbeat <url> --lane <name>`.
+The command appends a fresh `in-progress` entry only when the same lane
+holds the live claim; otherwise it prints `not-owner` and exits 1. The
+latest entry per URL is authoritative. With no heartbeat within
+`CLAIM_MAX_AGE_HOURS`, the claim expires and the job becomes claimable.
+An expired lane must claim again before heartbeating. This uses the same
+single-host locking scope described below.
+
 ## Concurrency limits (read this before going multi-machine)
 
 - Writes are serialized by a sidecar lock file (`<path>.lock`) held
@@ -69,6 +80,14 @@ with a `code-gate` reason, never released. Releasing it would let the
 next lane re-submit and trigger a second code email. After the
 operator enters the code (`code_gate.py`), return the job with
 `requeue`.
+
+`codegate.coordinate` owns the waiting loop: the lane marks code-gate jobs
+blocked, the coordinator waits once for a human-supplied 8-character code,
+and a caller callback uses the existing `code_gate.py` browser mechanics.
+After human handling, the job is requeued. On timeout, callers can wire
+`requeue_on_timeout(queue_path, claims_path, url)` to retry later. Invalid
+codes fail closed without another prompt. The coordinator never reads
+email or an inbox; the Telegram notifier is only an extension stub.
 
 ## Consent rule
 

@@ -25,7 +25,10 @@ ai-job-pilot-lane = "lane_greenhouse:main"
 ai-job-pilot-sweep = "sweep:main"
 ai-job-pilot-track = "tracker:main"
 ai-job-pilot-launch = "launch_browsers:main"
+ai-job-pilot-setup = "setup_wizard:main"
 ai-job-pilot-queue = "job_queue:main"
+ai-job-pilot-scoreboard = "scoreboard:main"
+ai-job-pilot-analytics = "analytics:main"
 
 [project.urls]
 Homepage = "https://github.com/summitsingh/ai-job-pilot"
@@ -36,6 +39,16 @@ py-modules = [
     "ats_fill",
     "batch_apply",
     "code_gate",
+    "codegate",
+    "setup_wizard",
+    "launch_browsers",
+    "job_queue",
+    "config",
+    "tracker",
+    "lane_greenhouse",
+    "location_check",
+    "submit_watchdog",
+    "sweep",
     "submit_only",
     "extract",
     "schema_dump",
@@ -53,4 +66,6 @@ py-modules = [
     "model",
     "indeed_dump",
     "indeed_fill",
+    "scoreboard",
+    "analytics",
 ]

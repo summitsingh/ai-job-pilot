@@ -68,6 +68,13 @@ diff) -> `verify`. Result goes to stdout and `<workdir>/result.json`:
    with `confirmation_evidence` (confirmation URL and/or "thank you for
    applying" text).
 
+For first-run review with the Greenhouse lane, use
+`python3 lane_greenhouse.py --workdir /tmp/jobpilot/lane1 --dry-run`.
+It fills and checks one job, saves `dryrun.png` in the job workdir, prints
+an answer table, and stops before submit with `dry_run: true`. Location,
+validity, and consent blockers still apply; review the exact answers
+before a real run.
+
 For a queue of postings, use `batch_apply.py --queue urls.txt --port 9226`:
 it fills each posting with `--no-submit`, asks you to confirm each
 submit, handles the code gate per application, and appends one JSON

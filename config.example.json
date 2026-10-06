@@ -5,11 +5,19 @@
   "JOBPILOT_FACTS": "/path/to/facts.json",
   "JOBPILOT_LANE": "<MACHINE>:9445",
   "JOBPILOT_MODEL_URL": "http://<MODEL_HOST>:1234",
+  "JOBPILOT_MODEL_MAX_TOKENS": "2000",
+  "JOBPILOT_MODEL_TELEMETRY": "model_telemetry.jsonl",
+  "JOBPILOT_MODEL_WALL_TIMEOUT_S": "300",
   "JOBPILOT_QUEUE": "/path/to/queue.json",
+  "JOBPILOT_SCOREBOARD": "/path/to/scoreboard.json",
+  "JOBPILOT_SUBMIT_POLL_S": "3",
+  "JOBPILOT_SUBMIT_RECHECKS": "2",
+  "JOBPILOT_SUBMIT_WAIT_S": "10",
+  "JOBPILOT_TARGET_METROS": "Austin, TX; Remote (US)",
   "TRACKER_BACKENDS": "jsonl",
   "TRACKER_NOTION_DB": "<notion database id>",
   "TRACKER_NOTION_TOKEN": "<notion integration token>",
   "TRACKER_SHEET_ID": "<google spreadsheet id>",
   "TRACKER_SHEET_TAB": "Applications",
-  "_comment": "Copy to config.json (gitignored) or export as env vars. This file carries no secrets."
+  "_comment": "Copy to config.json (gitignored) or export as env vars. This file carries no secrets. setup_wizard.py writes only non-secret settings and prints credential export lines for your shell profile."
 }

@@ -12,6 +12,9 @@ and applies the standard jobpilot filters:
   - sponsorship: rejects postings whose text rules out visa sponsorship
   - salary: rejects postings whose stated max is below the floor
   - dedup: rejects URLs already in the applied log (normalized)
+  - fuzzy dedup: withholds the same role reposted under a different URL
+    or board (same company, near-identical title, same location) and
+    lists the pair for human review (see near_duplicate)
 
 Input posting: {"title", "location", "url", "description",
                 "salary_min", "salary_max", "company"}.
@@ -190,15 +193,97 @@ def load_applied_urls(applied_path):
     return urls
 
 
+# --- fuzzy dedup -----------------------------------------------------------
+# Thresholds (kept here so they are easy to audit and tune):
+#   company:  normalized strings must be EQUAL
+#   title:    Jaccard similarity of meaningful token sets >= TITLE_JACCARD
+#   location: normalized strings must be EQUAL
+# All three must hold. Fail-closed note: a near-duplicate NEVER auto-merges
+# into the applied log and is never silently dropped; it is only withheld
+# from the queue and reported in stats["fuzzy_dup_review"] so a human
+# decides whether it is really the same role.
+TITLE_JACCARD = 0.8
+
+COMPANY_SUFFIXES = {"inc", "incorporated", "llc", "ltd", "limited", "corp",
+                    "corporation", "co", "company", "gmbh", "plc", "lp",
+                    "llp", "pbc"}
+# Seniority/level words are dropped so "Senior X" and "Staff X" compare on
+# the role itself.
+SENIORITY_WORDS = {"senior", "sr", "staff", "lead", "principal", "junior",
+                   "jr", "mid", "associate", "entry", "i", "ii", "iii",
+                   "iv", "v"}
+TITLE_STOPWORDS = {"a", "an", "and", "the", "of", "for", "to", "in", "at",
+                   "on", "with", "or", "remote", "hybrid", "us", "usa"}
+
+
+def _tokens(text):
+    return re.findall(r"[a-z0-9]+", (text or "").lower())
+
+
+def normalize_company(company):
+    """Lowercase, drop punctuation and trailing legal suffixes."""
+    toks = _tokens(company)
+    while len(toks) > 1 and toks[-1] in COMPANY_SUFFIXES:
+        toks.pop()
+    return " ".join(toks)
+
+
+def title_tokens(title):
+    """Sorted meaningful title tokens (seniority and stopwords removed)."""
+    return sorted({t for t in _tokens(title)
+                   if t not in SENIORITY_WORDS and t not in TITLE_STOPWORDS})
+
+
+def normalize_location(location):
+    """Lowercase, strip, collapse whitespace and punctuation."""
+    return " ".join(_tokens(location))
+
+
+def _jaccard(a, b):
+    a, b = set(a), set(b)
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def near_duplicate(a, b):
+    """True if two posting dicts look like the same role. Pure.
+
+    Needs company/title/location keys. Empty company or title never
+    matches (no evidence of sameness).
+    """
+    ca, cb = (normalize_company(a.get("company")),
+              normalize_company(b.get("company")))
+    if not ca or ca != cb:
+        return False
+    if normalize_location(a.get("location")) != normalize_location(
+            b.get("location")):
+        return False
+    return _jaccard(title_tokens(a.get("title")),
+                    title_tokens(b.get("title"))) >= TITLE_JACCARD
+
+
+def find_duplicates(candidates):
+    """Index pairs (i, j), i < j, of near-duplicate candidates. Pure."""
+    return [(i, j) for i in range(len(candidates))
+            for j in range(i + 1, len(candidates))
+            if near_duplicate(candidates[i], candidates[j])]
+
+
 def filter_postings(raw, applied_urls=(), min_salary=100000,
                     source="sweep", now=None):
     """Apply all filters; return (candidates, stats). Pure.
 
     applied_urls: normalized URLs already touched (from the tracker).
     now: ISO timestamp for queued_at; defaults to current UTC time.
+
+    Near-duplicates of an already-accepted candidate are not queued;
+    stats["fuzzy_dup"] counts them and stats["fuzzy_dup_review"] lists
+    (accepted_url, withheld_url) pairs for human review.
     """
     stats = {"scanned": len(raw), "title_fail": 0, "loc_fail": 0,
-             "sponsor_fail": 0, "salary_fail": 0, "dup": 0, "no_url": 0}
+             "sponsor_fail": 0, "salary_fail": 0, "dup": 0, "no_url": 0,
+             "fuzzy_dup": 0, "fuzzy_dup_review": []}
     cands = []
     seen = set()
     now = now or datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -232,13 +317,19 @@ def filter_postings(raw, applied_urls=(), min_salary=100000,
         smin, smax = j.get("salary_min"), j.get("salary_max")
         salary = ("%s - %s" % (smin, smax)).strip(" -") \
             if (smin or smax) else "salary undisclosed"
-        cands.append({
+        cand = {
             "company": j.get("company", ""), "title": j.get("title", ""),
             "location": loc, "salary": salary, "url": url,
             "ats": ats_of(url), "notes": j.get("notes", ""),
             "queued_at": now, "source": source, "status": "pending",
             "skip_reason": "",
-        })
+        }
+        twin = next((c for c in cands if near_duplicate(c, cand)), None)
+        if twin is not None:
+            stats["fuzzy_dup"] += 1
+            stats["fuzzy_dup_review"].append((twin["url"], url))
+            continue
+        cands.append(cand)
     return cands, stats
 
 

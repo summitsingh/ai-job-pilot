@@ -126,9 +126,9 @@ it, and verifies the confirmation page. Rules:
 
 ## Reference
 
-- `AGENTS.md` — full agent runbook (setup, code gate protocol, layout)
-- `docs/ats-notes.md` — per-ATS quirks from real runs
-- `docs/facts-schema.md` — every `facts.json` key
-- `docs/troubleshooting.md` — common failures
-- `docs/agent-setup.md` — platform-specific setup (ChatGPT, Codex,
+- `AGENTS.md` - full agent runbook (setup, code gate protocol, layout)
+- `docs/ats-notes.md` - per-ATS quirks from real runs
+- `docs/facts-schema.md` - every `facts.json` key
+- `docs/troubleshooting.md` - common failures
+- `docs/agent-setup.md` - platform-specific setup (ChatGPT, Codex,
   Claude Code, Muse, Hermes)

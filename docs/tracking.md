@@ -68,6 +68,38 @@ export TRACKER_BACKENDS="jsonl,notion"
 Long text values are clipped to 2000 characters per property (Notion's
 limit).
 
+## IDs or URLs
+
+`TRACKER_SHEET_ID` and `TRACKER_NOTION_DB` accept either a bare ID or
+the full URL you copy from the browser. The ID is extracted for you.
+
+- Sheets: `https://docs.google.com/spreadsheets/d/<ID>/edit...` gives
+  `<ID>` (the segment after `/d/`). A value with no `/` and no `.` is
+  treated as a bare ID.
+- Notion: a `notion.so` / `notion.site` URL whose last path segment ends
+  in the 32-hex database ID (hyphenated or not) gives the hyphenated ID.
+  The `?v=` query value is the view ID, not the database ID, and is
+  ignored. A bare 32-hex ID (with or without hyphens) also works.
+
+Anything that does not parse raises `ValueError` at startup (fail
+closed), so a typo can never silently point records at the wrong sheet
+or database. The pure helpers are `parse_sheets_id` and
+`parse_notion_db_id` in `tracker.py`.
+
+## Scoreboard and funnel analytics
+
+- `ai-job-pilot-scoreboard record --lane <name> --kind applied|skipped|blocked|dead`
+  appends an event to a JSON file (`JOBPILOT_SCOREBOARD`, `--db`, or
+  `scoreboard.json` next to the script); `show [--period day|week]
+  [--lane <name>]` prints per-lane and overall totals (UTC day, or
+  trailing 7 days). Lane names are free-form, e.g. `JOBPILOT_LANE`.
+- `ai-job-pilot-analytics [--in applications.jsonl] [--json]` reports
+  applied -> responded -> screening -> interview -> offer conversion,
+  overall and per company. Statuses are case-insensitive; anything
+  outside the fixed vocabulary is counted as `other` and listed. The
+  median time-to-response needs a `response_date` (YYYY-MM-DD) on the
+  record next to `date`; records without one are left out of the median.
+
 ## Reading a record from JSON
 
 `--from-json result.json` builds the record from a JSON file, so lanes

@@ -25,6 +25,7 @@ Usage:
   python3 job_queue.py --queue queue.json --claims claims.jsonl next --lane NAME
   python3 job_queue.py --queue queue.json --claims claims.jsonl claim URL --lane NAME
   python3 job_queue.py --queue queue.json --claims claims.jsonl mark URL applied
+  python3 job_queue.py heartbeat URL --lane NAME
   python3 job_queue.py --queue queue.json --claims claims.jsonl requeue URL
   python3 job_queue.py --queue queue.json stats
 
@@ -41,7 +42,10 @@ a best-effort no-op; same single-host rule applies.
 
 Stale claims: a claim counts as live only while in-progress and younger
 than CLAIM_MAX_AGE_HOURS (env, default 6). A lane that died mid-job stops
-blocking the queue after that window.
+blocking the queue after that window. Heartbeat every N minutes while
+working a job (for example, every 5 minutes). The latest entry per URL is
+authoritative, so a fresh in-progress heartbeat extends the live claim.
+Claims with no heartbeat within CLAIM_MAX_AGE_HOURS become claimable.
 """
 import argparse
 import datetime
@@ -267,6 +271,21 @@ def _check_owner(claims_path, url, lane):
     return c is None or c.get("lane") == lane
 
 
+def heartbeat(claims_path, url, lane):
+    """Refresh a live claim held by this lane, never acquire a new claim."""
+    with Store(claims_path):
+        if not lane or not _check_owner(claims_path, url, lane):
+            return False
+        current = live_claims(claims_path).get(norm_url(url))
+        # _check_owner allows an absent claim for release/mark; heartbeats
+        # require a live owner so a stale lane cannot revive lost work.
+        if current is None:
+            return False
+        fresh = dict(current, claimed_at=utcnow(), status="in-progress")
+        append_claim(claims_path, fresh)
+        return True
+
+
 def release(claims_path, url, lane=""):
     """Release a claim; the job stays pending for another pass."""
     with Store(claims_path):
@@ -356,6 +375,10 @@ def main():
     p.add_argument("--lane", default="lane-1")
     p.add_argument("--ats", default="")
 
+    p = sub.add_parser("heartbeat", help="refresh a live owned claim")
+    p.add_argument("url")
+    p.add_argument("--lane", required=True)
+
     p = sub.add_parser("release", help="release a claim")
     p.add_argument("url")
     p.add_argument("--lane", default="lane-1")
@@ -384,6 +407,11 @@ def main():
         else:
             print("null")
             sys.exit(1)
+    elif a.cmd == "heartbeat":
+        if not heartbeat(a.claims, a.url, a.lane):
+            print("not-owner")
+            sys.exit(1)
+        print("heartbeat")
     elif a.cmd == "release":
         print("released" if release(a.claims, a.url, a.lane)
               else "not-owner")
