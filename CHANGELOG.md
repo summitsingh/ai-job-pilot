@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased - 2026-10-06: template library expansion (private harness sync)
+
+- templates.py: new deterministic screening patterns ported from production
+  use: zip-code, prev-employed, work-eligible, workauth-authorized
+  ("legally authorized to work" -> Yes, excluding "without sponsorship"),
+  currently-live-us, privacy-ack select/checkbox (refuses legal-weight
+  language: arbitration, background checks, drug tests, assessments),
+  facts-driven education dates (start/end month/year) and discipline,
+  in-office willingness, commute willingness, and facts-driven essays
+  (llm/devtools/why-company; skipped when not provided, never invented).
+- templates.py: guard exemptions for workauth-authorized and privacy-ack
+  so deterministic answers apply without human review; legal-weight
+  language stays guarded.
+- hard_patterns.py: type-to-filter for long react-select option lists
+  (trusted CDP input so React sees the change).
+- map.py: apply_work_auth_select_overrides (work-auth answers on
+  select/custom-select dropdowns) and apply_acknowledge_override
+  (narrow "Acknowledge/Confirm" privacy checkbox).
+- cdp_direct.py: JOBPILOT_TAB_ID prefers a specific debug tab.
+- facts.example.json: education entries document start/end month/year;
+  new essays section for user-provided essay text.
+- 34 offline tests (10 new).
+
 ## Unreleased - 2026-10-06: harness hardening ports
 
 - Idempotent yes/no toggle handling in fill.py: Ashby yes/no buttons are
