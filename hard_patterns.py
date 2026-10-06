@@ -267,6 +267,14 @@ def fill_react_select(port, field_key, option_text):
     # (c/d) pick each option from the opened menu
     for opt in wanted:
         _open_menu(port, field_key, click_js)
+        # Type-to-filter: long option lists (e.g. school search with
+        # thousands of entries) only reveal matches after typing.
+        # Trusted CDP input so React sees the change.
+        try:
+            cdp(port, "ftype", b64(field_key), b64(opt))
+            time.sleep(1.2)
+        except Exception:
+            pass
         if not _wait_for_option(port, opt, 5):
             if _menu_open(port):
                 cdp(port, "fkey", "Escape")
