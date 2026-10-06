@@ -1,4 +1,4 @@
-# Batch queue example for jobpilot-batch
+# Batch queue example for ai-job-pilot-batch
 #
 # One posting URL per line. Lines starting with # are ignored.
 # Pair with --dedup to skip URLs already in your applications log,

@@ -153,7 +153,7 @@ def _lms_ensure(target):
 
     If a different model is CONFIRMED loaded, unloads it and loads `target`
     (~30-60s). If the loaded state can't be determined (SSH/API error),
-    does NOTHING — avoids churning models on transient errors.
+    does NOTHING - avoids churning models on transient errors.
     Only applies to the LM Studio backend (API_FLAVOR=openai).
     """
     if API_FLAVOR != "openai":

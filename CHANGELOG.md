@@ -5,6 +5,80 @@ All notable changes to jobpilot are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Operation layer: run the whole pipeline, not just single fills.
+  - `launch_browsers.py` (`ai-job-pilot-launch`): interactive headful
+    Chrome launcher. Asks how many browsers to open (recommended 2),
+    validates the count, assigns each its own port (checked free) and
+    profile dir, applies the macOS / Windows (schtasks /IT, visible on
+    the main screen) / Linux launch recipes, polls
+    `/json/version` until each instance answers, and prints a lane
+    summary table. Fails loudly if any instance does not come up.
+    Lane 1 defaults to Greenhouse, lane 2 to other boards; lane 3+
+    takes a purpose interactively or via `--purpose` flags.
+  - `lane_greenhouse.py` (`ai-job-pilot-lane`): one lane drives one
+    browser against the shared queue: claim, fresh tab, dead-posting
+    check, schema dump, deterministic-first map, fill, `checkValidity`
+    gate, submit, outcome detection (code gate / submitted /
+    unconfirmed), then tracker record + queue mark. The Greenhouse
+    code gate stays human-in-the-loop: the lane releases its claim
+    and exits for the operator to enter the code.
+  - `job_queue.py`: file-backed queue with cross-lane claims (append-only
+    JSONL claims log, stale-claim expiry, flock-guarded writes).
+    Documented in `docs/queue.md`.
+  - `tracker.py` (`ai-job-pilot-track`): pluggable application
+    tracking. JSONL backend (default, durable local record), Google
+    Sheets backend (service account, documented setup), Notion
+    backend (stdlib-only API client, documented setup). Secrets from
+    env vars only. Documented in `docs/tracking.md`.
+  - `sweep.py` (`ai-job-pilot-sweep`): vetting funnel for raw
+    postings: title level/role filters, location allowlist, visa
+    sponsorship-language filter, salary floor, dedup against the
+    applied log. Writes queue-shaped candidates. Documented in
+    `docs/sweep.md`.
+  - `docs/machine-setup.md`: visible-browser topology, per-platform
+    launch recipes, CDP driver notes.
+  - `config.example.json`: every env var in one place (copy to
+    `config.json`, gitignored).
+- `test_operation.py`: 33 offline tests covering queue claims/marks,
+  tracker record + JSONL round-trip, sweep filters, launcher
+  allocation/validation, and config precedence (no browser, model, or
+  network needed).
+
+### Fixed (pre-publish audit hardening)
+- `job_queue.py` (renamed from `queue.py`, which shadowed the stdlib
+  module): mutations now run inside a sidecar-lock transaction with
+  unique temp files and fsync; claims file is created without
+  truncation; release/mark verify claim ownership; malformed claim
+  lines are counted, not silently dropped; URL normalization preserves
+  path case and job-identifying query params (strips only known
+  tracking params); naive timestamps handled; new `requeue`
+  subcommand returns a terminal job to pending; `next`/`claim` accept
+  an `--ats` filter.
+- `tracker.py`: Sheets backend uses `RAW` input mode (posting text can
+  never become a formula); `TRACKER_SHEET_TAB` env fallback fixed and
+  tab names A1-quoted; fan-out validates all backends first and
+  reports per-backend errors; JSONL appends are locked and fsynced;
+  Notion backend persists all record fields with 2000-char clipping;
+  records require a URL and a valid status.
+- `sweep.py`: remote locations no longer invent US eligibility
+  ("Remote - South Africa" is rejected); more sponsorship-exclusion
+  phrases; string salaries ("$90,000", "90k") are parsed against the
+  floor; in-batch dedup; ATS detection parses the URL host;
+  `filter_postings` takes an injectable timestamp.
+- `lane_greenhouse.py`: independent consent pre-scan blocks
+  arbitration/certification/background-check fields before filling;
+  validity gate fails closed; required fields must all be filled
+  before submit; navigation host is validated; submit is one
+  form-scoped find+click with verification; code-gate marks blocked
+  (never releases, so no double code emails) with a `requeue` resume
+  path; `--no-submit` releases the claim; lane only takes Greenhouse
+  jobs; non-local CDP URLs fail closed; all outcomes are tracked.
+- `launch_browsers.py`: `--remote-allow-origins` restricted to
+  loopback; Windows paths quoted and schtasks run without `shell=True`
+  with cleanup in `finally`; purpose-assignment indexing fixed; port
+  range validated; instance polling requires real Chrome fields.
+
 ### Fixed
 - `fill.py` `do_select`: the react-select detector compared the whole
   CDP `Runtime.evaluate` response dict to the string `"rs"`, so
@@ -34,7 +108,7 @@ All notable changes to jobpilot are documented here. The format follows
   section with real verification numbers.
 
 ### Added
-- `docs/greenhouse-quirks.md`: production Greenhouse form quirks —
+- `docs/greenhouse-quirks.md`: production Greenhouse form quirks -
   JS-enforced cover letter despite optional schema, location
   autocomplete picking the wrong city (always verify visually), React
   textarea `execCommand('insertText')`, react-select handling,

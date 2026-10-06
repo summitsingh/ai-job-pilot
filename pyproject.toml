@@ -21,6 +21,11 @@ classifiers = [
 ai-job-pilot = "ats_fill:main"
 ai-job-pilot-batch = "batch_apply:main"
 ai-job-pilot-code-gate = "code_gate:main"
+ai-job-pilot-lane = "lane_greenhouse:main"
+ai-job-pilot-sweep = "sweep:main"
+ai-job-pilot-track = "tracker:main"
+ai-job-pilot-launch = "launch_browsers:main"
+ai-job-pilot-queue = "job_queue:main"
 
 [project.urls]
 Homepage = "https://github.com/summitsingh/ai-job-pilot"
