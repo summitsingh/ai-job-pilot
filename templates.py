@@ -534,6 +534,36 @@ def r_inoffice(f, facts, ats):
             "Yes, I am willing to work in-office.", "willing-in-office")
 
 
+def _essay(facts, key):
+    """Essay text from facts; None (skip) when the user has not provided it.
+    Essays are never invented."""
+    txt = (facts.get("essays") or {}).get(key, "")
+    if txt and txt.strip():
+        return txt.strip()
+    return None
+
+
+def r_essay_llm(f, facts, ats):
+    txt = _essay(facts, "llm_experience")
+    if not txt:
+        return None
+    return ("do", "fill", txt, "essay-llm")
+
+
+def r_essay_devtools(f, facts, ats):
+    txt = _essay(facts, "devtools_experience")
+    if not txt:
+        return None
+    return ("do", "fill", txt, "essay-devtools")
+
+
+def r_essay_why(f, facts, ats):
+    txt = _essay(facts, "why_company")
+    if not txt:
+        return None
+    return ("do", "fill", txt, "essay-why")
+
+
 def r_military_no(f, facts, ats):
     # Not a veteran; not military spouse; not National Guard/Reserves.
     return ("opt", ["No", "I am not a veteran", "not a veteran"],
@@ -722,6 +752,17 @@ PATTERNS = [
     ("signature", re.compile(r"signature|type your (full )?name.*(sign|"
                              r"certif)", re.I), r_signature, {"text"}),
     # subjective essays: skip
+    # targeted essays: answered from facts["essays"], never invented.
+    # The generic "essay" pattern below skips anything these miss.
+    ("essay-llm", re.compile(r"(llm|large language model|agent framework|"
+                             r"tool-?calling|workflow orchestration)", re.I),
+     r_essay_llm, {"text", "textarea"}),
+    ("essay-devtools", re.compile(r"experience.*(developer-?facing|developer tools|"
+                                  r"\bapis?\b|\bsdks?\b|\bclis?\b).*build", re.I),
+     r_essay_devtools, {"text", "textarea"}),
+    ("essay-why", re.compile(r"what excites you|why do you want to work|"
+                             r"why.*this (company|role|opportunity)", re.I),
+     r_essay_why, {"text", "textarea"}),
     ("essay", re.compile(r"why (do you want|are you|this company)|"
                          r"motivat|cover letter|favorite project|"
                          r"proudest accomplishment|describe your experience|"
