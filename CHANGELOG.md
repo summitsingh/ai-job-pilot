@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased - 2026-10-06: harness hardening ports
+
+- Idempotent yes/no toggle handling in fill.py: Ashby yes/no buttons are
+  independent toggles, so a blind click can unset an already-selected
+  answer. New react_toggle_resolver_js()/click_react_toggle_js() ensure the
+  desired button is pressed without toggling it off; wired into the
+  singleton click path.
+- Sponsorship hard-pattern in hard_patterns.py: sponsorship questions always
+  resolve to Yes / will-require-sponsorship and never to a country-specific
+  visa option; pick_sponsorship_option() fails loudly (None, None) when no
+  safe option exists, and fill_react_select() raises if a country-specific
+  visa ends up selected on a sponsorship field.
+- common.py host_test_file(): with JOBPILOT_CDP_URL set (DIRECT_CDP), the
+  resume path is checked locally instead of over SSH.
+
 ## Unreleased - 2026-10-06: round 2 feature audit
 
 - Resolve all 39 MINOR findings, including bounded watchdog waits, observation

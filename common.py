@@ -121,6 +121,9 @@ def host_test_file(path):
                             "&&", "echo", "OK"], capture_output=True,
                            text=True, timeout=60)
         return r.returncode == 0 and r.stdout.strip() == "OK"
+    if DIRECT_CDP:
+        # browser runs on this host: check locally
+        return os.path.isfile(path)
     try:
         host_ssh("test", "-f", path, "&&", "echo", "OK")
         return True
