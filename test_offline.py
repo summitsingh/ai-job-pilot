@@ -160,6 +160,17 @@ class TestMapTemplate(unittest.TestCase):
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#d"]["action"], "select")
 
+    def test_inoffice_willingness(self):
+        schema = {"fields": [
+            {"key": "#io", "label": "Are you willing to work in-office 5 days?",
+             "type": "select", "options": ["Yes", "No"]},
+            {"key": "#c", "label": "Willing to commute?", "type": "select",
+             "options": ["Yes", "No"]},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#io"]["action"], "select")
+        self.assertEqual(m["#c"]["action"], "select")
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):
