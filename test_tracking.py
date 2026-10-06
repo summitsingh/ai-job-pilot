@@ -9,12 +9,14 @@ import datetime
 import json
 import os
 import sys
+import subprocess
 import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import analytics
+import tracker
 import scoreboard
 import sweep
 from tracker import (NotionTracker, SheetsTracker, parse_notion_db_id,
@@ -52,6 +54,14 @@ class SheetsIdTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 parse_sheets_id(bad)
 
+    def test_published_and_short_sheet_ids_rejected(self):
+        for bad in ("https://docs.google.com/spreadsheets/d/e/2PACX-published/pubhtml",
+                    "https://docs.google.com/spreadsheets/d/e/published/spreadsheets/d/" + SHEET,
+                    "https://docs.google.com/spreadsheets/d/short/edit",
+                    "short"):
+            with self.assertRaises(ValueError, msg=bad):
+                parse_sheets_id(bad)
+
     def test_constructor_uses_parser(self):
         t = SheetsTracker(
             spreadsheet_id="https://docs.google.com/spreadsheets/d/%s/edit"
@@ -61,6 +71,73 @@ class SheetsIdTest(unittest.TestCase):
             SheetsTracker(spreadsheet_id="https://example.com/x",
                           credentials_path="/nonexistent.json")
 
+
+
+class TrackerStatusTest(unittest.TestCase):
+    def test_response_fields_and_case_tolerant_statuses(self):
+        for status in ("applied", "RESPONDED", "screening", "Interview",
+                       "offer", "rejected", "withdrawn", "blocked"):
+            rec = tracker.build_record(url="https://example.com/1", status=status,
+                                       response_date="2026-01-05")
+            self.assertEqual(rec["status"], status.title())
+            self.assertEqual(rec["response_date"], "2026-01-05")
+
+    def test_update_cli_preserves_stage_and_first_response_by_url_or_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "applications.jsonl")
+            rec = tracker.build_record(url="https://example.com/1", date="2026-01-01",
+                                       company="Acme", status="Applied")
+            tracker.JsonlTracker(path).append(rec)
+            for selector, status, date in ((["--url", rec["url"]], "interview", "2026-01-04"),
+                                           (["--id", rec["id"]], "rejected", "2026-01-08")):
+                result = subprocess.run([sys.executable, tracker.__file__, "update",
+                    "--jsonl-path", path, *selector, "--status", status,
+                    "--response-date", date], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            with open(path) as f:
+                rows = [json.loads(line) for line in f]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["status"], "Rejected")
+            self.assertEqual(rows[0]["furthest_stage"], "Interview")
+            self.assertEqual(rows[0]["response_date"], "2026-01-04")
+            stages = analytics.funnel_stats(rows)["overall"]["stages"]
+            self.assertEqual(stages, {"applied": 1, "responded": 1, "screening": 1,
+                                      "interview": 1, "offer": 0})
+
+    def test_update_unknown_record_or_bad_date_does_not_mutate_log(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "applications.jsonl")
+            rec = tracker.build_record(url="https://example.com/1", date="2026-01-01")
+            local = tracker.JsonlTracker(path)
+            local.append(rec)
+            with open(path) as f:
+                before = f.read()
+            for kwargs in ({"url": "https://example.com/missing"},
+                           {"url": rec["url"], "response_date": "bad"},
+                           {"url": rec["url"], "response_date": "2025-12-31"}):
+                with self.assertRaises(ValueError):
+                    local.update("interview", **kwargs)
+                with open(path) as f:
+                    self.assertEqual(f.read(), before)
+
+    def test_update_response_defaults_to_today(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "applications.jsonl")
+            local = tracker.JsonlTracker(path)
+            local.append(tracker.build_record(url="https://example.com/1"))
+            rec = local.update("screening", url="https://example.com/1?utm_source=test")
+            self.assertEqual(rec["response_date"], datetime.date.today().isoformat())
+            self.assertEqual(rec["furthest_stage"], "Screening")
+
+    def test_terminal_stage_and_excluded_records(self):
+        stats = analytics.funnel_stats([
+            {"status": "Withdrawn", "furthest_stage": "Offer"},
+            {"status": "Rejected", "furthest_stage": "Interview"},
+            *({"status": s} for s in ("Ready", "Dead", "Skipped", "Blocked"))])
+        self.assertEqual(stats["overall"]["excluded"], 4)
+        self.assertEqual(stats["unknown_statuses"], {})
+        self.assertEqual(stats["overall"]["stages"], {
+            "applied": 2, "responded": 2, "screening": 2, "interview": 2, "offer": 1})
 
 class NotionIdTest(unittest.TestCase):
     def test_bare_ids(self):
@@ -193,12 +270,12 @@ class AnalyticsTest(unittest.TestCase):
         st = analytics.funnel_stats(recs)
         o = st["overall"]
         self.assertEqual(st["total"], 5)
-        self.assertEqual(o["stages"], {"applied": 5, "responded": 3,
+        self.assertEqual(o["stages"], {"applied": 5, "responded": 4,
                                        "screening": 2, "interview": 2,
                                        "offer": 1})
-        self.assertAlmostEqual(o["conversion"]["applied->responded"], 0.6)
+        self.assertAlmostEqual(o["conversion"]["applied->responded"], 0.8)
         self.assertAlmostEqual(o["conversion"]["responded->screening"],
-                               2 / 3, places=3)
+                               0.5, places=3)
         self.assertEqual(o["counts"]["rejected"], 1)
         # days: 4, 2, 10 -> median 4
         self.assertEqual(o["median_days_to_response"], 4)
@@ -213,8 +290,9 @@ class AnalyticsTest(unittest.TestCase):
             {"company": "A", "status": "Skipped"},
             {"company": "A", "status": ""},
             {"company": "A", "status": "applied"}])
-        self.assertEqual(st["overall"]["other"], 2)
-        self.assertEqual(st["unknown_statuses"], {"Skipped": 1, "(empty)": 1})
+        self.assertEqual(st["overall"]["other"], 1)
+        self.assertEqual(st["overall"]["excluded"], 1)
+        self.assertEqual(st["unknown_statuses"], {"(empty)": 1})
         self.assertEqual(st["overall"]["stages"]["applied"], 1)
         self.assertIn("unknown statuses", analytics.format_report(st))
 
@@ -241,10 +319,12 @@ class FuzzyDedupTest(unittest.TestCase):
         a = {"company": "Acme", "title": "Senior Backend Engineer",
              "location": "Austin, TX",
              "url": "https://job-boards.greenhouse.io/acme/jobs/1"}
-        b = {"company": "Acme", "title": "Staff Backend Engineer",
+        b = {"company": "Acme", "title": "Sr Backend Engineer",
              "location": "austin, tx",
              "url": "https://jobs.lever.co/acme/abc"}
         self.assertTrue(sweep.near_duplicate(a, b))
+        for title in ("Staff Backend Engineer", "Lead Backend Engineer"):
+            self.assertFalse(sweep.near_duplicate(a, dict(b, title=title)))
 
     def test_company_suffix_variants(self):
         a = {"company": "Acme Inc.", "title": "Senior Platform Engineer",
@@ -254,7 +334,7 @@ class FuzzyDedupTest(unittest.TestCase):
         c = {"company": "ACME, LLC", "title": "Platform Engineer",
              "location": "Remote"}
         self.assertTrue(sweep.near_duplicate(a, b))
-        self.assertTrue(sweep.near_duplicate(a, c))
+        self.assertFalse(sweep.near_duplicate(a, c))
 
     def test_different_titles_location_company(self):
         base = {"company": "Acme", "title": "Senior Backend Engineer",
@@ -275,7 +355,7 @@ class FuzzyDedupTest(unittest.TestCase):
               "location": "Austin"},
              {"company": "Other", "title": "Senior Backend Engineer",
               "location": "Austin"},
-             {"company": "acme inc", "title": "Backend Engineer",
+             {"company": "acme inc", "title": "Sr Backend Engineer",
               "location": "Austin"}]
         self.assertEqual(sweep.find_duplicates(c), [(0, 2)])
 
@@ -304,6 +384,137 @@ class FuzzyDedupTest(unittest.TestCase):
         self.assertEqual(cands, [])
         self.assertEqual(stats["fuzzy_dup"], 0)
         self.assertEqual(stats["fuzzy_dup_review"], [])
+
+
+class AuditNotionProgressFieldsTest(unittest.TestCase):
+    def test_response_date_and_stage_survive_backend_record(self):
+        import io
+        from unittest import mock
+        rec = tracker.build_record(url="https://example.com/job", status="Rejected", response_date="2026-10-06", furthest_stage="Interview")
+        backend = tracker.NotionTracker(token="offline", database_id="0123456789abcdef0123456789abcdef")
+        with mock.patch("tracker.urllib.request.urlopen", return_value=io.BytesIO(b'{"id":"page"}')) as request:
+            backend.append(rec)
+        payload = json.loads(request.call_args.args[0].data)
+        props = payload["properties"]
+        self.assertEqual(props["Response Date"]["date"]["start"], rec["response_date"])
+        self.assertEqual(props["Furthest Stage"]["rich_text"][0]["text"]["content"], "Interview")
+        self.assertEqual(props["ID"]["rich_text"][0]["text"]["content"], rec["id"])
+
+
+class RoundTwoTrackingTest(unittest.TestCase):
+    def test_scoreboard_replacement_preserves_permissions(self):
+        import stat
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "scoreboard.json")
+            scoreboard.record(path, "lane", "applied")
+            os.chmod(path, 0o640)
+            scoreboard.record(path, "lane", "skipped")
+            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o640)
+
+    def test_scoreboard_failed_replace_cleans_temp_and_preserves_data(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "scoreboard.json")
+            scoreboard.record(path, "lane", "applied")
+            with mock.patch("scoreboard.os.replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    scoreboard.record(path, "lane", "dead")
+            self.assertEqual(len(scoreboard.load_events(path)), 1)
+            self.assertFalse(any(name.startswith(".scoreboard-") for name in os.listdir(d)))
+
+    def test_scoreboard_clock_skew_boundary(self):
+        now = datetime.datetime(2026, 1, 15, 12, tzinfo=datetime.timezone.utc)
+        events = [{"lane": "a", "kind": "applied", "ts": value} for value in (
+            "2026-01-15T12:05:00Z", "2026-01-15T12:05:01Z")]
+        for period in ("day", "week"):
+            self.assertEqual(scoreboard.totals(events, period, now=now)["overall"]["total"], 1)
+
+    def test_scoreboard_day_uses_utc_with_offset_now(self):
+        now = datetime.datetime.fromisoformat("2026-01-16T01:00:00+02:00")
+        events = [{"lane": "a", "kind": "applied", "ts": "2026-01-15T12:00:00Z"},
+                  {"lane": "a", "kind": "applied", "ts": "2026-01-16T00:00:00Z"}]
+        self.assertEqual(scoreboard.totals(events, "day", now=now)["overall"]["total"], 1)
+
+    def test_analytics_keeps_last_normalized_url_without_merging_url_less_rows(self):
+        records = [
+            {"url": "https://example.com/job/?utm_source=a", "company": "Old", "status": "Applied"},
+            {"url": "https://example.com/job", "company": "New", "status": "Interview"},
+            {"company": "Other", "status": "Applied"},
+            {"url": "", "company": "Other", "status": "Applied"}]
+        stats = analytics.funnel_stats(records)
+        self.assertEqual(stats["total"], 3)
+        self.assertNotIn("old", stats["companies"])
+        self.assertEqual(stats["overall"]["stages"]["interview"], 1)
+
+    def test_analytics_missing_input_is_friendly(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = subprocess.run([sys.executable, analytics.__file__, "--in", os.path.join(d, "missing.jsonl")],
+                                    capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("missing.jsonl", result.stderr)
+
+    def test_analytics_default_input_independent_of_cwd(self):
+        from unittest import mock
+        import io
+        original_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {}, clear=True):
+            os.chdir(d)
+            try:
+                with mock.patch("sys.argv", ["analytics.py", "--json"]), mock.patch("builtins.open", return_value=io.StringIO("")) as opened, mock.patch("sys.stdout", new_callable=io.StringIO):
+                    analytics.main()
+                self.assertEqual(os.path.abspath(opened.call_args.args[0]),
+                                 os.path.join(os.path.dirname(analytics.__file__), "applications.jsonl"))
+            finally:
+                os.chdir(original_cwd)
+
+    def test_tracker_url_parsers_reject_non_https_schemes(self):
+        for scheme in ("http", "ftp", "file", "javascript"):
+            for parser, url in ((parse_sheets_id, "docs.google.com/spreadsheets/d/" + SHEET),
+                                (parse_notion_db_id, "notion.so/" + HEX)):
+                with self.subTest(scheme=scheme, url=url), self.assertRaises(ValueError):
+                    parser(scheme + "://" + url)
+
+    def test_notion_rejects_noncanonical_hyphen_placement(self):
+        for value in ("-" + HEX, HEX + "-", HEX[:4] + "-" + HEX[4:], HYPH.replace("-", "--")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_notion_db_id(value)
+
+    def test_terminal_sanitizer_handles_osc_st_unfinished_and_all_controls(self):
+        from terminal_output import sanitize_terminal
+        self.assertEqual(sanitize_terminal("Café\x1b]8;;https://example.com\x1b\\Link\x1b]8;;\x1b\\"), "CaféLink")
+        self.assertEqual(sanitize_terminal("ok\x1b]0;unfinished"), "ok")
+        self.assertEqual(sanitize_terminal("ok\x1b]0;hidden\x1b[31mtext\x07end"), "okend")
+        self.assertEqual(sanitize_terminal("ok\x1b[31"), "ok")
+        self.assertEqual(sanitize_terminal("ok" + "".join(chr(i) for i in range(32)) + chr(127)), "ok")
+
+    def test_scoreboard_clock_skew_never_crosses_utc_day(self):
+        now = datetime.datetime(2026, 1, 15, 23, 59, tzinfo=datetime.timezone.utc)
+        events = [{"lane": "a", "kind": "applied", "ts": "2026-01-16T00:01:00Z"}]
+        self.assertEqual(scoreboard.totals(events, "day", now=now)["overall"]["total"], 0)
+        self.assertEqual(scoreboard.totals(events, "week", now=now)["overall"]["total"], 1)
+
+    def test_analytics_configured_default_input(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "chosen.jsonl")
+            with open(path, "w") as f:
+                f.write(json.dumps({"url": "https://example.com/job", "status": "Applied"}) + "\n")
+            env = dict(os.environ, TRACKER_JSONL_PATH=path)
+            result = subprocess.run([sys.executable, analytics.__file__, "--json"], cwd=d,
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["total"], 1)
+
+    def test_terminal_company_and_lane_output_strips_escape_sequences(self):
+        hostile = "Acme\x1b[31mRed\x1b[0m\x1b]0;hijack\x07\n\r\t\x00\x7f"
+        report = analytics.format_report(analytics.funnel_stats([{"company": hostile, "status": "Applied"}]))
+        self.assertIn("AcmeRed", report)
+        self.assertNotIn("hijack", report)
+        self.assertNotIn("\x1b", report)
+        totals = scoreboard.totals([{"lane": hostile, "kind": "applied", "ts": "2026-01-01T00:00:00Z"}],
+                                  now=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc))
+        self.assertIn("AcmeRed", scoreboard.format_table(totals))
+        self.assertNotIn("\x1b", scoreboard.format_table(totals))
 
 
 if __name__ == "__main__":

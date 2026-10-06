@@ -7,7 +7,8 @@ Backend is one JSON file:
 
 Lane names are free-form strings from config (JOBPILOT_LANE), for example
 "mac-mini:9445". Nothing is hardcoded. Appends run inside job_queue.Store
-(sidecar lock file), so concurrent lanes on one host do not lose events;
+(sidecar lock file), so concurrent lanes on one POSIX host do not lose events;
+on Windows the lock is a no-op, so use only one writer;
 the file is replaced atomically on save.
 
 DB path precedence: --db > JOBPILOT_SCOREBOARD (env or config.json) >
@@ -25,11 +26,13 @@ import datetime
 import json
 import os
 import sys
+import stat
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
+from terminal_output import sanitize_terminal
 from job_queue import Store, utcnow, _parse_ts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,11 +64,17 @@ def load_events(db):
 def _save(db, events):
     fd, tmp = tempfile.mkstemp(prefix=".scoreboard-",
                                dir=os.path.dirname(os.path.abspath(db)))
-    with os.fdopen(fd, "w") as f:
-        json.dump({"events": events}, f, indent=1)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, db)
+    try:
+        with os.fdopen(fd, "w") as f:
+            if os.path.exists(db):
+                os.chmod(tmp, stat.S_IMODE(os.stat(db).st_mode))
+            json.dump({"events": events}, f, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, db)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def record(db, lane, kind, company="", url="", ts=None):
@@ -89,13 +98,18 @@ def totals(events, period="day", lane=None, now=None):
     """Count events in the period. Pure.
 
     period "day" is the current UTC calendar day; "week" is the trailing
-    7 days up to now. Returns {"lanes": {lane: {kind: n, "total": n}},
+    7 days up to now. Allow five minutes of future clock skew, but never
+    cross the UTC day boundary for a day report. Returns {"lanes": {lane: {kind: n, "total": n}},
     "overall": {kind: n, "total": n}}. Events with an unparseable ts or
     an unknown kind are ignored.
     """
     if period not in PERIODS:
         raise ValueError("period must be one of %s" % list(PERIODS))
     now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
+    now = now.astimezone(datetime.timezone.utc)
+    upper = now + datetime.timedelta(minutes=5)
     if period == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     else:
@@ -106,7 +120,9 @@ def totals(events, period="day", lane=None, now=None):
     for e in events:
         ts = _parse_ts(e.get("ts", ""))
         kind = e.get("kind")
-        if ts is None or kind not in KINDS or ts < start or ts > now:
+        if ts is None or kind not in KINDS or ts < start or ts > upper:
+            continue
+        if period == "day" and ts >= start + datetime.timedelta(days=1):
             continue
         name = e.get("lane", "")
         if lane and name != lane:
@@ -122,7 +138,8 @@ def totals(events, period="day", lane=None, now=None):
 def format_table(result, period="day"):
     """Plain-text table, one row per lane plus an overall row."""
     cols = list(KINDS) + ["total"]
-    rows = [(n, result["lanes"][n]) for n in sorted(result["lanes"])]
+    rows = [(sanitize_terminal(n), result["lanes"][n])
+            for n in sorted(result["lanes"])]
     rows.append(("OVERALL", result["overall"]))
     width = max([len("lane")] + [len(n) for n, _ in rows])
     head = "%-*s  %s" % (width, "lane", "  ".join("%7s" % c for c in cols))

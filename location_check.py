@@ -34,7 +34,7 @@ import sys
 
 from config import get
 
-DEFAULT_METROS = "Austin, TX; Remote (US)"
+DEFAULT_METROS = ""  # Operators must configure applicant locations before claims.
 
 STATES = {
     "al": "alabama", "ak": "alaska", "az": "arizona", "ar": "arkansas",
@@ -111,15 +111,29 @@ def parse_metros(raw):
         return [p.strip() for p in s.split(";") if p.strip()]
     out = []
     for p in (x.strip() for x in s.split(",") if x.strip()):
-        if out and _state_abbr(p) and not _state_abbr(out[-1]):
+        if out and _state_abbr(p) and parse_metro(out[-1]) is None:
             out[-1] = out[-1] + ", " + p
         else:
             out.append(p)
     return out
 
 
+def validate_metros(raw):
+    """Validate configuration once before claiming any jobs."""
+    try:
+        descriptors = parse_metros(raw)
+    except (ValueError, TypeError) as e:
+        raise ValueError("invalid target metros JSON: %s" % e) from e
+    bad = [desc for desc in descriptors if parse_metro(desc) is None]
+    for desc in bad:
+        print("WARNING: unusable location descriptor: %r" % desc, file=sys.stderr)
+    if bad or not descriptors:
+        raise ValueError("unusable target metros; use City, ST or Remote (US): %s" % "; ".join(bad))
+    return descriptors
+
+
 def load_target_metros(cfg=None):
-    """Env var JOBPILOT_TARGET_METROS > config.json > default allowlist."""
+    """Env var JOBPILOT_TARGET_METROS > config.json > empty (fail closed)."""
     return parse_metros(get("JOBPILOT_TARGET_METROS", DEFAULT_METROS, cfg))
 
 
@@ -140,23 +154,59 @@ def verify_location(field_value, target_metros):
         return {"ok": False,
                 "reason": "no target metros configured; cannot verify "
                           "location %r" % value}
-    nv = _norm(value)
+    if re.search(r"\b(?:not|except|excluding)\b", value, re.I):
+        return {"ok": False, "reason": "negated location requires human review: " + value}
+    # Lowercase "or" separates alternatives, except after a comma (state
+    # context). Uppercase OR is a state abbreviation, not a separator.
+    segments = re.split(r";|\||(?<![,\w])\s+or\s+", re.sub(r"\s+", " ", value))
     for desc in metros:
         m = parse_metro(desc)
         if m is None:
+            print("WARNING: unusable location descriptor: %r" % desc, file=sys.stderr)
             continue
-        if m["kind"] == "remote":
-            if _has_phrase(nv, "remote") and (
-                    not m["qualifier"] or _has_phrase(nv, m["qualifier"])):
-                return {"ok": True, "reason": "matched " + m["desc"]}
-            continue
-        state_full = STATES[m["state"]]
-        if (_has_phrase(nv, m["city"]) and
-                (_has_phrase(nv, m["state"]) or _has_phrase(nv, state_full))):
-            return {"ok": True, "reason": "matched " + m["desc"]}
+        for segment in segments:
+            nv = _norm(segment)
+            if m["kind"] == "remote":
+                if _has_phrase(nv, "remote") and (not m["qualifier"] or _has_phrase(nv, m["qualifier"])):
+                    return {"ok": True, "reason": "matched " + m["desc"]}
+            else:
+                # Whole city phrase immediately followed by state tokens.
+                if _has_phrase(nv, m["city"] + " " + STATES[m["state"]]):
+                    return {"ok": True, "reason": "matched " + m["desc"]}
+                abbr = m["state"]
+                if _has_phrase(nv, m["city"] + " " + abbr):
+                    if abbr in {"or", "in", "me", "ok", "hi"}:
+                        city = re.escape(m["city"])
+                        clear_state = (re.search(r"\b" + city + r"\s*,\s*" + abbr + r"\b", segment, re.I)
+                                       or re.search(r"\b(?i:" + city + r")\s+" + abbr.upper() + r"\b", segment))
+                        if not clear_state:
+                            continue
+                    return {"ok": True, "reason": "matched " + m["desc"]}
     return {"ok": False,
             "reason": "location %r does not match expected metros: %s"
                       % (value, "; ".join(metros))}
+
+
+def verify_location_component(value, target_metros, component):
+    """Check a split city/state/country value against configured descriptors."""
+    normalized = _norm(value).strip()
+    allowed = set()
+    for desc in parse_metros(target_metros):
+        metro = parse_metro(desc)
+        if metro is None:
+            continue
+        if component == "city" and metro["kind"] == "city":
+            allowed.add(_norm(metro["city"]).strip())
+        elif component == "state" and metro["kind"] == "city":
+            allowed.update((metro["state"], STATES[metro["state"]]))
+        elif component == "country":
+            if metro["kind"] == "city":
+                allowed.add("us")  # City descriptors use the US STATES table.
+            elif metro["qualifier"]:
+                allowed.add(metro["qualifier"])
+    ok = bool(normalized and normalized in allowed)
+    return {"ok": ok, "reason": ("matched applicant " + component if ok else
+             "applicant %s %r does not match configured metros" % (component, value))}
 
 
 def main():

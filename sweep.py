@@ -34,6 +34,9 @@ import os
 import re
 import sys
 import urllib.parse
+import unicodedata
+import tempfile
+from collections import defaultdict
 
 from job_queue import norm_url
 
@@ -164,12 +167,26 @@ def ats_of(url):
 def load_applied_urls(applied_path):
     """URLs already applied/skipped, from JSONL or a JSON list. Pure."""
     urls = set()
+    for e in load_history(applied_path):
+        if isinstance(e, str):
+            u = e
+        elif isinstance(e, dict):
+            u = e.get("job_url") or e.get("url") or ""
+        else:
+            continue
+        if u:
+            urls.add(norm_url(u))
+    return urls
+
+
+def load_history(applied_path):
+    """Read JSON/JSONL history without retaining applicant answers."""
     if not applied_path or not os.path.exists(applied_path):
-        return urls
+        return []
     with open(applied_path) as f:
         text = f.read().strip()
     if not text:
-        return urls
+        return []
     entries = []
     if text.startswith("["):
         entries = json.loads(text)
@@ -181,16 +198,15 @@ def load_applied_urls(applied_path):
                     entries.append(json.loads(line))
                 except ValueError:
                     continue
-    for e in entries:
-        if isinstance(e, str):
-            u = e
-        elif isinstance(e, dict):
-            u = e.get("job_url") or e.get("url") or ""
-        else:
-            continue
-        if u:
-            urls.add(norm_url(u))
-    return urls
+    return entries
+
+
+def fingerprint(posting):
+    """Only normalized role identity and source URL belong in history."""
+    return {"company": normalize_company(posting.get("company")),
+            "title": " ".join(title_tokens(posting.get("title"))),
+            "location": normalize_location(posting.get("location")),
+            "url": posting.get("url") or posting.get("job_url") or ""}
 
 
 # --- fuzzy dedup -----------------------------------------------------------
@@ -207,8 +223,7 @@ TITLE_JACCARD = 0.8
 COMPANY_SUFFIXES = {"inc", "incorporated", "llc", "ltd", "limited", "corp",
                     "corporation", "co", "company", "gmbh", "plc", "lp",
                     "llp", "pbc"}
-# Seniority/level words are dropped so "Senior X" and "Staff X" compare on
-# the role itself.
+# Seniority remains part of identity, even for otherwise similar titles.
 SENIORITY_WORDS = {"senior", "sr", "staff", "lead", "principal", "junior",
                    "jr", "mid", "associate", "entry", "i", "ii", "iii",
                    "iv", "v"}
@@ -217,7 +232,9 @@ TITLE_STOPWORDS = {"a", "an", "and", "the", "of", "for", "to", "in", "at",
 
 
 def _tokens(text):
-    return re.findall(r"[a-z0-9]+", (text or "").lower())
+    folded = unicodedata.normalize("NFKD", (text or "").casefold())
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    return re.findall(r"[^\W_]+(?:\+\+|#)?", folded)
 
 
 def normalize_company(company):
@@ -229,14 +246,35 @@ def normalize_company(company):
 
 
 def title_tokens(title):
-    """Sorted meaningful title tokens (seniority and stopwords removed)."""
-    return sorted({t for t in _tokens(title)
-                   if t not in SENIORITY_WORDS and t not in TITLE_STOPWORDS})
+    """Sorted meaningful title tokens, preserving levels and C++/C#."""
+    aliases = {"sr": "senior", "jr": "junior"}
+    return sorted({aliases.get(t, t) for t in _tokens(title)
+                   if t not in TITLE_STOPWORDS})
+
+
+US_STATES = dict(zip(
+    "al ak az ar ca co ct de fl ga hi id il in ia ks ky la me md ma mi mn ms "
+    "mo mt ne nv nh nj nm ny nc nd oh ok or pa ri sc sd tn tx ut vt va wa "
+    "wv wi wy dc".split(),
+    ("Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|"
+     "Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|"
+     "Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|"
+     "Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|"
+     "New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|"
+     "Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|"
+     "Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|"
+     "Wyoming|District of Columbia").lower().split("|")))
 
 
 def normalize_location(location):
-    """Lowercase, strip, collapse whitespace and punctuation."""
-    return " ".join(_tokens(location))
+    """Normalize punctuation and a trailing US state name/abbreviation."""
+    text = " ".join(_tokens(location))
+    for short, full in US_STATES.items():
+        if text == full:
+            return short
+        if text.endswith(" " + full):
+            return text[:-len(full)] + short
+    return text
 
 
 def _jaccard(a, b):
@@ -246,32 +284,40 @@ def _jaccard(a, b):
     return len(a & b) / len(a | b)
 
 
-def near_duplicate(a, b):
-    """True if two posting dicts look like the same role. Pure.
+def _role_key(posting):
+    tokens = frozenset(title_tokens(posting.get("title")))
+    return (normalize_company(posting.get("company")),
+            normalize_location(posting.get("location")),
+            frozenset(tokens & SENIORITY_WORDS), tokens)
 
-    Needs company/title/location keys. Empty company or title never
-    matches (no evidence of sameness).
-    """
-    ca, cb = (normalize_company(a.get("company")),
-              normalize_company(b.get("company")))
-    if not ca or ca != cb:
-        return False
-    if normalize_location(a.get("location")) != normalize_location(
-            b.get("location")):
-        return False
-    return _jaccard(title_tokens(a.get("title")),
-                    title_tokens(b.get("title"))) >= TITLE_JACCARD
+
+def _same_role(a, b):
+    languages_a = {t for t in a[3] if t.endswith(("++", "#"))}
+    languages_b = {t for t in b[3] if t.endswith(("++", "#"))}
+    return bool(a[0] and a[:3] == b[:3] and languages_a == languages_b
+                and _jaccard(a[3], b[3]) >= TITLE_JACCARD)
+
+
+def near_duplicate(a, b):
+    """Same company, location and level, with near-identical title tokens."""
+    return _same_role(_role_key(a), _role_key(b))
 
 
 def find_duplicates(candidates):
-    """Index pairs (i, j), i < j, of near-duplicate candidates. Pure."""
-    return [(i, j) for i in range(len(candidates))
-            for j in range(i + 1, len(candidates))
-            if near_duplicate(candidates[i], candidates[j])]
+    """Index pairs (i, j), i < j, using precomputed role buckets."""
+    buckets = defaultdict(list)
+    pairs = []
+    for j, candidate in enumerate(candidates):
+        key = _role_key(candidate)
+        for i, earlier in buckets[key[:3]]:
+            if _same_role(earlier, key):
+                pairs.append((i, j))
+        buckets[key[:3]].append((j, key))
+    return sorted(pairs)
 
 
 def filter_postings(raw, applied_urls=(), min_salary=100000,
-                    source="sweep", now=None):
+                    source="sweep", now=None, history=()):
     """Apply all filters; return (candidates, stats). Pure.
 
     applied_urls: normalized URLs already touched (from the tracker).
@@ -285,6 +331,11 @@ def filter_postings(raw, applied_urls=(), min_salary=100000,
              "sponsor_fail": 0, "salary_fail": 0, "dup": 0, "no_url": 0,
              "fuzzy_dup": 0, "fuzzy_dup_review": []}
     cands = []
+    buckets = defaultdict(list)
+    for previous in history:
+        if isinstance(previous, dict):
+            key = _role_key(previous)
+            buckets[key[:3]].append((previous, key))
     seen = set()
     now = now or datetime.datetime.now(datetime.timezone.utc).isoformat()
     for j in raw:
@@ -324,13 +375,29 @@ def filter_postings(raw, applied_urls=(), min_salary=100000,
             "queued_at": now, "source": source, "status": "pending",
             "skip_reason": "",
         }
-        twin = next((c for c in cands if near_duplicate(c, cand)), None)
+        key = _role_key(cand)
+        twin = next((c for c, previous_key in buckets[key[:3]]
+                     if _same_role(previous_key, key)), None)
         if twin is not None:
             stats["fuzzy_dup"] += 1
-            stats["fuzzy_dup_review"].append((twin["url"], url))
+            stats["fuzzy_dup_review"].append((twin.get("url") or twin.get("job_url") or "", url))
             continue
         cands.append(cand)
+        buckets[key[:3]].append((cand, key))
     return cands, stats
+
+
+def save_review(stats, workdir):
+    """Save posting URL pairs for human review, including dry-run evidence."""
+    if stats["fuzzy_dup_review"]:
+        os.makedirs(workdir, exist_ok=True)
+        # Unique files preserve each sweep's review evidence. The default is
+        # outside the checkout; repo-local workdir/ is already gitignored.
+        fd, review_path = tempfile.mkstemp(prefix="sweep-review-", suffix=".json",
+                                           dir=workdir)
+        with os.fdopen(fd, "w") as f:
+            json.dump({"fuzzy_dup_review": stats["fuzzy_dup_review"]}, f, indent=1)
+        stats["review_file"] = review_path
 
 
 def main():
@@ -341,9 +408,13 @@ def main():
                     help="applied log (JSONL or JSON list) for dedup")
     ap.add_argument("--queue", default="",
                     help="append candidates to this queue file")
+    ap.add_argument("--fingerprints", default="",
+                    help="persistent role history (default: queue stem-fingerprints.jsonl)")
     ap.add_argument("--min-salary", type=float, default=100000)
     ap.add_argument("--source", default="sweep")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--workdir", default="/tmp/jobpilot",
+                    help="duplicate review artifacts (default: /tmp/jobpilot)")
     a = ap.parse_args()
 
     with open(a.inp) as f:
@@ -351,21 +422,51 @@ def main():
     if isinstance(raw, dict):
         raw = raw.get("jobs", raw.get("postings", []))
     applied = load_applied_urls(a.applied)
-    cands, stats = filter_postings(raw, applied, a.min_salary, a.source)
+    history_path = a.fingerprints or (os.path.splitext(a.queue)[0] +
+                                    "-fingerprints.jsonl" if a.queue else "")
+    history = [e for e in load_history(a.applied) if isinstance(e, dict)]
+    if a.dry_run or not a.queue:
+        history += load_history(history_path)
+        if a.queue:
+            from job_queue import load_queue
+            history += load_queue(a.queue)
+        cands, stats = filter_postings(raw, applied, a.min_salary, a.source,
+                                      history=history)
+        stats["candidates"] = len(cands)
+        save_review(stats, a.workdir)
+        print(json.dumps(stats, indent=1))
+        return
+    from job_queue import Store, load_queue, save_queue
+    # Keep queue reads, history reads, append and save in one transaction.
+    # All writers take the queue lock before the history lock.
+    with Store(a.queue), Store(history_path):
+        jobs = load_queue(a.queue)
+        fingerprints = load_history(history_path)
+        history += fingerprints + jobs
+        cands, stats = filter_postings(raw, applied, a.min_salary, a.source,
+                                      history=history)
+        seen = {norm_url(j.get("url", "")) for j in jobs}
+        additions = [c for c in cands if norm_url(c["url"]) not in seen]
+        jobs.extend(additions)
+        # Save fingerprints first: a failed queue save must fail closed.
+        recorded = {norm_url(e.get("url", "")) for e in fingerprints
+                    if isinstance(e, dict)}
+        with open(history_path, "a") as f:
+            for entry in history + additions:
+                if not isinstance(entry, dict):
+                    continue
+                record = fingerprint(entry)
+                identity = norm_url(record["url"])
+                if identity and identity not in recorded:
+                    f.write(json.dumps(record) + "\n")
+                    recorded.add(identity)
+            f.flush()
+            os.fsync(f.fileno())
+        save_queue(a.queue, jobs)
+    save_review(stats, a.workdir)
+    added = len(additions)
     stats["candidates"] = len(cands)
     print(json.dumps(stats, indent=1))
-    if a.dry_run or not a.queue:
-        return
-    from job_queue import load_queue, save_queue
-    jobs = load_queue(a.queue)
-    seen = {norm_url(j.get("url", "")) for j in jobs}
-    added = 0
-    for c in cands:
-        if norm_url(c["url"]) not in seen:
-            jobs.append(c)
-            seen.add(norm_url(c["url"]))
-            added += 1
-    save_queue(a.queue, jobs)
     print("appended %d new candidates to %s" % (added, a.queue))
 
 

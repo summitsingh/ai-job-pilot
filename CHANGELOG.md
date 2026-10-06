@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased - 2026-10-06: round 2 feature audit
+
+- Resolve all 39 MINOR findings, including bounded watchdog waits, observation
+  evidence, explicit location configuration, unique default queue owners,
+  role review artifacts, atomic setup/scoreboard writes and telemetry rotation.
+- Preserve consent, deterministic mapping, human code verification and round 1
+  Applied-history safeguards. See [round 2 details](docs/CHANGELOG.md).
+
+## Unreleased - 2026-10-06: round 1 feature audit
+
+### Fixed: round 1 feature audit
+- Greenhouse human code coordinator is wired into the lane. Verified confirmation
+  marks Applied and records Applied; failed/expired attempts alone can requeue for
+  later runs, with 3 persisted attempts maximum. Missing stdin and ambiguous code
+  confirmation stay blocked. Historical Applied prevents every submit/re-submit.
+- Dry-run releases claims for all outcomes, with no tracker or terminal queue writes.
+- Setup defaults to cwd, prints credential placeholders and alternate config export.
+  Ignore rules cover local env, PII/state, locks, fingerprints and service-account keys.
+- Submit watchdog reaches JS after a normal miss only when safe, allows one successful
+  recovery click, waits 30 seconds by default, and blocks ambiguous/in-flight states.
+- Sweep queue updates hold Store locks; persistent role fingerprints catch later reposts.
+- Map, extract and verify use budgeted_chat with capped request timeouts and cooperative
+  cancellation between retries/models. The lane calls heartbeat at claim/submit boundaries.
+- Tracker supports response statuses, local update by URL/id, response_date and preserved
+  furthest_stage. Analytics separates excluded rows. Published/short Sheets IDs fail closed.
+- Location configuration validates before claims; city/state matching requires adjacency
+  in one non-negated segment. SKILL safety rules include consent and employer blocklist.
+
+
 All notable changes to jobpilot are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
@@ -32,8 +61,8 @@ All notable changes to jobpilot are documented here. The format follows
   - `submit_watchdog.py`: detects a swallowed submit click (URL unchanged,
     no confirmation, no error) and walks a recovery ladder: wait+recheck,
     normal re-click, JS click, then give up as blocked with evidence.
-    Re-clicks only while the page is untouched, so a slow real submit is
-    never doubled; the Greenhouse code gate stays human-in-the-loop.
+    Recovery requires explicit safe-retry evidence, with one recovery click
+    maximum; ambiguous states block; the Greenhouse code gate stays human-in-the-loop.
     Tunable with `JOBPILOT_SUBMIT_WAIT_S`, `JOBPILOT_SUBMIT_RECHECKS`,
     `JOBPILOT_SUBMIT_POLL_S`. Wired into `lane_greenhouse.py`.
   - `location_check.py`: post-fill location verifier. Requires the city
@@ -44,7 +73,7 @@ All notable changes to jobpilot are documented here. The format follows
   - `model.budgeted_chat`: `chat()` with a `max_tokens` ceiling
     (`JOBPILOT_MODEL_MAX_TOKENS`), a hard wall-clock budget
     (`JOBPILOT_MODEL_WALL_TIMEOUT_S`), and per-call JSONL telemetry
-    (`JOBPILOT_MODEL_TELEMETRY`). `chat()` itself is unchanged.
+    (`JOBPILOT_MODEL_TELEMETRY`). real calls use the wrapper, with cooperative cancellation in `chat()`.
   - `test_reliability.py`: 24 offline tests for the above.
 - Operation layer: run the whole pipeline, not just single fills.
   - `launch_browsers.py` (`ai-job-pilot-launch`): interactive headful
@@ -61,8 +90,8 @@ All notable changes to jobpilot are documented here. The format follows
     check, schema dump, deterministic-first map, fill, `checkValidity`
     gate, submit, outcome detection (code gate / submitted /
     unconfirmed), then tracker record + queue mark. The Greenhouse
-    code gate stays human-in-the-loop: the lane releases its claim
-    and exits for the operator to enter the code.
+    code gate stays human-in-the-loop: the lane parks the job blocked
+    and uses the human coordinator to enter the code and verify confirmation.
   - `job_queue.py`: file-backed queue with cross-lane claims (append-only
     JSONL claims log, stale-claim expiry, flock-guarded writes).
     Documented in `docs/queue.md`.
@@ -111,8 +140,8 @@ All notable changes to jobpilot are documented here. The format follows
   validity gate fails closed; required fields must all be filled
   before submit; navigation host is validated; submit is one
   form-scoped find+click with verification; code-gate marks blocked
-  (never releases, so no double code emails) with a `requeue` resume
-  path; `--no-submit` releases the claim; lane only takes Greenhouse
+  (never releases while waiting); confirmation marks Applied,
+  and only failed/expired attempts below the cap can requeue; `--no-submit` releases the claim; lane only takes Greenhouse
   jobs; non-local CDP URLs fail closed; all outcomes are tracked.
 - `launch_browsers.py`: `--remote-allow-origins` restricted to
   loopback; Windows paths quoted and schtasks run without `shell=True`

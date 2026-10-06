@@ -418,7 +418,7 @@ class JobQueueExtraTest(unittest.TestCase):
         self.assertEqual(j["url"], "https://example.com/jobs/2")
         self.assertTrue(requeue(self.q, self.c,
                                 "https://example.com/jobs/1",
-                                "code entered", lane="lane-a"))
+                                "failed code attempt"))
         j = next_job(self.q, self.c, "lane-c")
         self.assertEqual(j["url"], "https://example.com/jobs/1")
 
@@ -454,3 +454,276 @@ class JobQueueExtraTest(unittest.TestCase):
         # ...so the job is claimable again
         j = next_job(self.q, self.c, "lane-b")
         self.assertEqual(j["url"], "https://example.com/jobs/1")
+
+
+class SetupAuditTest(unittest.TestCase):
+    def test_yes_never_prints_environment_credentials(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import setup_wizard
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, 'facts.json'), 'w') as fh:
+                json.dump({'first_name': 'Applicant'}, fh)
+            output = io.StringIO()
+            token = 'sk-raw-sensitive-token-9f2x'
+            with mock.patch.dict(os.environ, {'TRACKER_BACKENDS': 'notion',
+                    'TRACKER_NOTION_TOKEN': token,
+                    'TRACKER_NOTION_DB': '0123456789abcdef0123456789abcdef'}, clear=True), \
+                    mock.patch('setup_wizard.allocate_lanes', return_value=[]), \
+                    contextlib.redirect_stdout(output):
+                result = setup_wizard.main(['--yes', '--directory', directory])
+            self.assertEqual(result, 0)
+            self.assertNotIn(token, output.getvalue())
+            self.assertNotIn('01234567-89ab-cdef-0123-456789abcdef', output.getvalue())
+            self.assertIn('export JOBPILOT_CONFIG=', output.getvalue())
+            self.assertIn(os.path.join(directory, 'config.json'), output.getvalue())
+
+    def test_default_setup_directory_is_cwd(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import setup_wizard
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, 'facts.json'), 'w') as fh:
+                json.dump({'first_name': 'Applicant'}, fh)
+            with mock.patch.dict(os.environ, {}, clear=True), \
+                    mock.patch('setup_wizard.os.getcwd', return_value=directory), \
+                    mock.patch('setup_wizard.allocate_lanes', return_value=[]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                cfg = setup_wizard.plan_setup({})
+                result = setup_wizard.main(['--yes'])
+            self.assertEqual(cfg['JOBPILOT_QUEUE'], os.path.join(directory, 'queue.json'))
+            self.assertEqual(result, 0)
+            self.assertTrue(os.path.isfile(os.path.join(directory, 'config.json')))
+
+
+class SweepAuditTest(unittest.TestCase):
+    def run_sweep(self, directory, posting, extra=()):
+        import contextlib
+        import io
+        from unittest import mock
+        import sweep
+        raw = os.path.join(directory, 'raw.json')
+        with open(raw, 'w') as fh:
+            json.dump([posting], fh)
+        args = ['sweep.py', '--in', raw, '--queue', os.path.join(directory, 'queue.json')]
+        with mock.patch.object(sys, 'argv', args + list(extra)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            sweep.main()
+
+    def test_reposted_role_with_new_url_in_later_sweep_is_withheld(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_sweep(directory, job('https://example.com/old'))
+            # Historical fingerprints must survive a queue rotation.
+            os.unlink(os.path.join(directory, 'queue.json'))
+            self.run_sweep(directory, job('https://example.com/new'))
+            with open(os.path.join(directory, 'queue.json')) as fh:
+                self.assertEqual(json.load(fh), [])
+
+    def test_new_url_matches_applied_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            applied = os.path.join(directory, 'applications.jsonl')
+            with open(applied, 'w') as fh:
+                fh.write(json.dumps(job('https://example.com/old', status='Applied')) + '\n')
+            self.run_sweep(directory, job('https://example.com/new'), ['--applied', applied])
+            with open(os.path.join(directory, 'queue.json')) as fh:
+                self.assertEqual(json.load(fh), [])
+
+    def test_queue_load_and_save_are_inside_store_transaction(self):
+        from unittest import mock
+        import job_queue
+        with tempfile.TemporaryDirectory() as directory:
+            active = []
+            real_enter, real_exit = job_queue.Store.__enter__, job_queue.Store.__exit__
+            real_load, real_save = job_queue.load_queue, job_queue.save_queue
+            def enter(store):
+                result = real_enter(store)
+                active.append(store.path)
+                return result
+            def leave(store, *exc):
+                active.remove(store.path)
+                return real_exit(store, *exc)
+            def load(path):
+                self.assertIn(os.path.abspath(path), active)
+                return real_load(path)
+            def save(path, jobs):
+                self.assertIn(os.path.abspath(path), active)
+                return real_save(path, jobs)
+            with mock.patch.object(job_queue.Store, '__enter__', enter), \
+                    mock.patch.object(job_queue.Store, '__exit__', leave), \
+                    mock.patch('job_queue.load_queue', side_effect=load), \
+                    mock.patch('job_queue.save_queue', side_effect=save):
+                self.run_sweep(directory, job('https://example.com/new'))
+
+    def test_fingerprint_file_has_only_role_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            posting = job('https://example.com/old', notes='private applicant note',
+                          email='private@example.com')
+            self.run_sweep(directory, posting)
+            path = os.path.join(directory, 'queue-fingerprints.jsonl')
+            with open(path) as fh:
+                records = [json.loads(line) for line in fh]
+            self.assertEqual(len(records), 1)
+            self.assertEqual(set(records[0]), {'company', 'title', 'location', 'url'})
+            self.assertEqual(records[0]['title'], 'backend engineer senior')
+
+    def test_dry_run_does_not_write_queue_or_fingerprints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_sweep(directory, job('https://example.com/new'), ['--dry-run'])
+            self.assertEqual(os.listdir(directory), ['raw.json'])
+
+class AuditLegacyFingerprintTest(unittest.TestCase):
+    def test_legacy_job_url_history_withholds_repost(self):
+        from sweep import filter_postings
+        role = {"company": "Example", "title": "Senior Software Engineer", "location": "Austin, TX", "url": "https://example.com/new"}
+        old = dict(role, job_url="https://example.com/old")
+        del old["url"]
+        candidates, stats = filter_postings([role], history=[old])
+        self.assertEqual(candidates, [])
+        self.assertEqual(stats["fuzzy_dup_review"], [(old["job_url"], role["url"])])
+
+class QueueMinorAuditTest(unittest.TestCase):
+    def test_unique_default_lane_and_environment_override(self):
+        from unittest import mock
+        import job_queue
+        self.assertTrue(callable(getattr(job_queue, 'default_lane', None)))
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch('socket.gethostname', return_value='host-a'), mock.patch('os.getpid', return_value=42):
+            self.assertEqual(job_queue.default_lane(), 'lane-1@host-a#42')
+        with mock.patch.dict(os.environ, {'JOBPILOT_LANE': 'operator-lane'}):
+            self.assertEqual(job_queue.default_lane(), 'operator-lane')
+
+    def test_invalid_and_future_claims_block_then_expire_without_extending(self):
+        import datetime
+        from unittest import mock
+        import job_queue
+        start = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+        for stamp in ['garbage', '2999-01-01T00:00:00Z']:
+            with self.subTest(stamp=stamp), tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, 'claims.jsonl')
+                with open(path, 'w') as f:
+                    f.write(json.dumps({'url': 'https://example.com/1', 'lane': 'owner', 'claimed_at': stamp, 'status': 'in-progress'}) + '\n')
+                with mock.patch('job_queue.datetime.datetime', wraps=datetime.datetime) as clock:
+                    clock.now.return_value = start
+                    self.assertIn('example.com/1', job_queue.live_claims(path, 1))
+                    clock.now.return_value = start + datetime.timedelta(hours=2)
+                    self.assertEqual(job_queue.live_claims(path, 1), {})
+                claims, _ = job_queue.read_claims(path)
+                self.assertEqual(len(claims), 2)
+                self.assertEqual(claims[-1]['lane'], 'owner')
+
+    def test_nonpositive_and_nonfinite_ttl_fail_safe(self):
+        import job_queue
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, 'claims.jsonl')
+            job_queue.append_claim(path, {'url': 'https://example.com/1', 'lane': 'owner', 'claimed_at': job_queue.utcnow(), 'status': 'in-progress'})
+            for ttl in [0, -1, float('nan'), float('inf'), 'invalid']:
+                with self.subTest(ttl=ttl):
+                    self.assertIn('example.com/1', job_queue.live_claims(path, ttl))
+
+    def test_invalid_url_port_does_not_raise(self):
+        self.assertEqual(norm_url('https://h:abc/x'), 'https://h:abc/x')
+
+    def run_cli(self, args):
+        import contextlib
+        import io
+        from unittest import mock
+        import job_queue
+        output = io.StringIO()
+        with mock.patch.object(sys, 'argv', ['job_queue.py'] + args), contextlib.redirect_stdout(output):
+            try:
+                job_queue.main()
+            except SystemExit as e:
+                self.assertEqual(e.code, 1)
+        return output.getvalue().strip()
+
+    def test_heartbeat_cli_no_live_claim(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(self.run_cli(['--claims', os.path.join(d, 'claims.jsonl'), 'heartbeat', 'https://example.com/1', '--lane', 'a']), 'no-live-claim')
+
+    def test_unique_cli_owner_and_explicit_operator_override(self):
+        with tempfile.TemporaryDirectory() as d:
+            q, c = os.path.join(d, 'queue.json'), os.path.join(d, 'claims.jsonl')
+            url = 'https://example.com/1'
+            with open(q, 'w') as f:
+                json.dump([job(url)], f)
+            claim(q, c, url, 'owner')
+            self.assertEqual(self.run_cli(['--queue', q, '--claims', c, 'mark', url, 'blocked', '--lane', 'other']), 'not-owner')
+            self.assertEqual(self.run_cli(['--queue', q, '--claims', c, 'release', url]), 'not-owner')
+            self.assertEqual(self.run_cli(['--queue', q, '--claims', c, 'release', url, '--lane', '']), 'released')
+            claim(q, c, url, 'owner')
+            self.assertEqual(self.run_cli(['--queue', q, '--claims', c, 'mark', url, 'applied']), 'not-owner')
+            self.assertEqual(self.run_cli(['--queue', q, '--claims', c, 'mark', url, 'applied', '--lane', '']), 'marked')
+
+class SweepMinorAuditTest(unittest.TestCase):
+    def test_seniority_differences_survive_long_titles(self):
+        import sweep
+        a = job('https://example.com/a', title='Senior Backend Software Platform Infrastructure Cloud Engineer')
+        for level in ['Staff', 'Lead', 'Principal']:
+            self.assertFalse(sweep.near_duplicate(a, dict(a, title=a['title'].replace('Senior', level))))
+
+    def test_unicode_and_programming_languages_preserved(self):
+        import sweep
+        self.assertEqual(sweep.normalize_company('Caf\u00e9 Inc.'), sweep.normalize_company('CAFE\u0301 LLC'))
+        self.assertEqual(sweep.normalize_company('Stra\u00dfe'), sweep.normalize_company('STRASSE'))
+        self.assertTrue(sweep.normalize_company('\u6771\u4eac'))
+        a = job('https://example.com/a', title='Senior Backend C++ Software Engineer')
+        self.assertFalse(sweep.near_duplicate(a, dict(a, title='Senior Backend C# Software Engineer')))
+        self.assertIn('c++', sweep.title_tokens(a['title']))
+        self.assertIn('c#', sweep.title_tokens('Senior C# Engineer'))
+
+    def test_us_state_names_and_abbreviations_match(self):
+        import sweep
+        for left, right in [('Austin, TX', 'Austin, Texas'), ('New York, NY', 'New York, New York'), ('Washington, DC', 'Washington, District of Columbia'), ('Portland, OR', 'Portland, Oregon')]:
+            self.assertEqual(sweep.normalize_location(left), sweep.normalize_location(right))
+        self.assertNotEqual(sweep.normalize_location('Austin, TX'), sweep.normalize_location('Austin, MN'))
+
+    def test_filter_normalizes_each_role_once_and_buckets(self):
+        from unittest import mock
+        import sweep
+        roles = [job('https://example.com/%s' % n, company='Company%s' % n) for n in range(20)]
+        with mock.patch.object(sweep, 'normalize_company', wraps=sweep.normalize_company) as normalize:
+            candidates, _ = sweep.filter_postings(roles)
+        self.assertEqual(len(candidates), 20)
+        self.assertLessEqual(normalize.call_count, 20)
+
+    def test_duplicate_review_saved_in_workdir(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import sweep
+        with tempfile.TemporaryDirectory() as d:
+            raw, q, workdir = os.path.join(d, 'raw.json'), os.path.join(d, 'queue.json'), os.path.join(d, 'workdir')
+            with open(raw, 'w') as f:
+                json.dump([job('https://example.com/a'), job('https://example.com/b')], f)
+            with mock.patch.object(sys, 'argv', ['sweep.py', '--in', raw, '--queue', q, '--workdir', workdir]), contextlib.redirect_stdout(io.StringIO()):
+                sweep.main()
+            paths = [os.path.join(workdir, p) for p in os.listdir(workdir) if p.endswith('.json')]
+            self.assertEqual(len(paths), 1)
+            with open(paths[0]) as f:
+                self.assertEqual(json.load(f)['fuzzy_dup_review'], [['https://example.com/a', 'https://example.com/b']])
+
+class SweepLanguageIdentityTest(unittest.TestCase):
+    def test_language_distinction_survives_long_title(self):
+        import sweep
+        title = 'Senior Backend Platform Infrastructure Cloud Systems Software Engineer Distributed Services C++'
+        a = job('https://example.com/a', title=title)
+        self.assertFalse(sweep.near_duplicate(a, dict(a, title=title.replace('C++', 'C#'))))
+
+class SweepDryReviewTest(unittest.TestCase):
+    def test_dry_run_saves_review_without_queue_or_fingerprints(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import sweep
+        with tempfile.TemporaryDirectory() as d:
+            raw, q, workdir = os.path.join(d, 'raw.json'), os.path.join(d, 'queue.json'), os.path.join(d, 'workdir')
+            with open(raw, 'w') as f:
+                json.dump([job('https://example.com/a'), job('https://example.com/b')], f)
+            with mock.patch.object(sys, 'argv', ['sweep.py', '--in', raw, '--queue', q, '--workdir', workdir, '--dry-run']), contextlib.redirect_stdout(io.StringIO()) as out:
+                sweep.main()
+            self.assertFalse(os.path.exists(q))
+            self.assertFalse(os.path.exists(os.path.splitext(q)[0] + '-fingerprints.jsonl'))
+            review = json.loads(out.getvalue())['review_file']
+            with open(review) as f:
+                self.assertEqual(json.load(f)['fuzzy_dup_review'], [['https://example.com/a', 'https://example.com/b']])

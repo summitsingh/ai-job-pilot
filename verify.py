@@ -39,7 +39,7 @@ def verify(port):
         return {"confirmed": rule_hit, "rule_hit": rule_hit,
                 "model_says": None, "evidence": "model unreachable; rule only",
                 "url": url}
-    res = model.chat(SYSTEM,
+    res = model.budgeted_chat(SYSTEM,
                      f"URL: {url}\n\nPAGE TEXT (first 4000 chars):\n{text[:4000]}",
                      "verify", SCHEMA, max_tokens=300, temperature=0.0)
     confirmed = bool(res.get("confirmed", False))

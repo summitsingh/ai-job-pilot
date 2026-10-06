@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Shared config loading: config.json file, with env vars taking precedence.
 
-Precedence: environment variable > config.json > built-in default.
+For settings whose consumer uses this loader, precedence is:
+environment variable > config.json > built-in default.
 
 config.json lives next to the scripts (copy config.example.json to
 config.json; it is gitignored). It holds non-secret settings like
-JOBPILOT_CDP_URL, JOBPILOT_QUEUE, TRACKER_BACKENDS. Secrets (tokens,
-service-account paths, spreadsheet IDs) also work here, but env vars
-are preferred for those.
+JOBPILOT_CDP_URL, JOBPILOT_QUEUE, TRACKER_BACKENDS. Model settings
+(JOBPILOT_MODEL_*, JOBPILOT_API_FLAVOR, JOBPILOT_BACKUP_MODELS) and tracker
+credentials/options (TRACKER_* except TRACKER_BACKENDS, plus
+GOOGLE_APPLICATION_CREDENTIALS) are read from the environment by their
+consumers; placing them in config.json does not configure those consumers.
+The setup wizard defaults to the working directory and prints a
+JOBPILOT_CONFIG export when its output differs from the scripts path.
 
 Usage:
     from config import load_config

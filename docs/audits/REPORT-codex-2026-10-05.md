@@ -4,20 +4,20 @@ The findings below distinguish personal or machine-specific data from benign loo
 
 **Personal and machine-specific findings**
 
-- `repo/docs/ats-notes.md:94-95` — `([redacted phone])` and `[redacted phone digits]`.
-- `repo/test_offline.py:114` — `matches("[redacted phone digits]", "([redacted phone])")`.
-- `repo/LICENSE:3` — `Copyright (c) 2026 [redacted real name]`.
-- `repo/pyproject.toml:12` — `authors = [{ name = "[redacted real name]" }]`.
-- `repo/test_indeed.py:10-11` — `the [redacted machine] Chrome`; `ATS_HOST_SSH=[redacted home-directory path]`.
-- `repo/test_indeed.py:23` — `expanduser("[redacted home-directory path]")`.
-- `repo/test_templates.py:7` — `indeed x2 via [redacted machine] lane`.
-- `update/test_indeed.py:23` — `expanduser("[redacted home-directory path]")`.
+- `repo/docs/ats-notes.md:94-95` - `([redacted phone])` and `[redacted phone digits]`.
+- `repo/test_offline.py:114` - `matches("[redacted phone digits]", "([redacted phone])")`.
+- `repo/LICENSE:3` - `Copyright (c) 2026 [redacted real name]`.
+- `repo/pyproject.toml:12` - `authors = [{ name = "[redacted real name]" }]`.
+- `repo/test_indeed.py:10-11` - `the [redacted machine] Chrome`; `ATS_HOST_SSH=[redacted home-directory path]`.
+- `repo/test_indeed.py:23` - `expanduser("[redacted home-directory path]")`.
+- `repo/test_templates.py:7` - `indeed x2 via [redacted machine] lane`.
+- `update/test_indeed.py:23` - `expanduser("[redacted home-directory path]")`.
 
 **IP addresses, all loopback**
 
-- `repo/AGENTS.md:31,35`; `repo/README.md:70,109,249`; `repo/SKILL.md:42,45` — `[redacted loopback IP]` in local model or CDP examples.
-- `repo/cdp_direct.py:33,37`; `repo/cdp_driver.py:30`; `repo/model.py:8,27`; `repo/test_indeed.py:11,21` — `[redacted loopback IP]` in local connection settings.
-- `update/AGENTS.md:40,44`; `update/docs/multi-machine.md:33`; `update/test_indeed.py:21` — `[redacted loopback IP]` in local connection settings.
+- `repo/AGENTS.md:31,35`; `repo/README.md:70,109,249`; `repo/SKILL.md:42,45` - `[redacted loopback IP]` in local model or CDP examples.
+- `repo/cdp_direct.py:33,37`; `repo/cdp_driver.py:30`; `repo/model.py:8,27`; `repo/test_indeed.py:11,21` - `[redacted loopback IP]` in local connection settings.
+- `update/AGENTS.md:40,44`; `update/docs/multi-machine.md:33`; `update/test_indeed.py:21` - `[redacted loopback IP]` in local connection settings.
 
 The replacement phone values in the update are `555` placeholders. The example email addresses and `/home/user` paths are placeholders. I found no `100.x` address, credential-store reference, API key, token, password value, or street address.
 

@@ -41,17 +41,22 @@ single host, or run one queue writer per machine. On Windows the lock is
 a best-effort no-op; same single-host rule applies.
 
 Stale claims: a claim counts as live only while in-progress and younger
-than CLAIM_MAX_AGE_HOURS (env, default 6). A lane that died mid-job stops
+than the configured TTL (default 6 hours). A lane that died mid-job stops
 blocking the queue after that window. Heartbeat every N minutes while
 working a job (for example, every 5 minutes). The latest entry per URL is
 authoritative, so a fresh in-progress heartbeat extends the live claim.
-Claims with no heartbeat within CLAIM_MAX_AGE_HOURS become claimable.
+Claims with no heartbeat within the TTL become claimable. Invalid TTLs
+fall back to 6 hours; valid TTLs are bounded to 5 minutes through 24 hours.
+Malformed or future timestamps are repaired once under lock and kept live
+for one bounded TTL rather than allowing immediate or indefinite takeover.
 """
 import argparse
 import datetime
 import json
+import math
 import os
 import sys
+import socket
 import tempfile
 import urllib.parse
 
@@ -73,7 +78,33 @@ except ImportError:  # Windows: no flock; best effort only
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 TERMINAL = {"applied", "skipped", "blocked", "dead"}
-CLAIM_MAX_AGE_HOURS = float(os.environ.get("CLAIM_MAX_AGE_HOURS", "6"))
+def _bounded_claim_hours(value):
+    try:
+        hours = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 6.0
+    if not math.isfinite(hours) or hours <= 0:
+        return 6.0
+    return min(24.0, max(5.0 / 60, hours))
+
+
+def _configured_claim_hours():
+    seconds = os.environ.get("JOBPILOT_CLAIM_TTL_SECONDS")
+    if seconds is not None:
+        try:
+            return _bounded_claim_hours(float(seconds) / 3600)
+        except (ValueError, OverflowError):
+            return 6.0
+    return _bounded_claim_hours(os.environ.get("CLAIM_MAX_AGE_HOURS", "6"))
+
+
+CLAIM_MAX_AGE_HOURS = _configured_claim_hours()
+
+
+def default_lane():
+    """Use an explicit owner identity or a host/process-specific default."""
+    return (os.environ.get("JOBPILOT_LANE", "").strip()
+            or "lane-1@%s#%d" % (socket.gethostname(), os.getpid()))
 
 # Query params that never identify a job; stripped during normalization.
 TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term",
@@ -99,11 +130,12 @@ def norm_url(u):
         u = "https://" + u
     try:
         p = urllib.parse.urlsplit(u)
+        host = p.hostname.lower() if p.hostname else ""
+        port = p.port
     except ValueError:
         return u.lower()
-    host = p.hostname.lower() if p.hostname else ""
-    if p.port and p.port not in (80, 443):
-        host = "%s:%d" % (host, p.port)
+    if port and port not in (80, 443):
+        host = "%s:%d" % (host, port)
     q = urllib.parse.parse_qsl(p.query, keep_blank_values=True)
     q = sorted((k, v) for k, v in q if k.lower() not in TRACKING_PARAMS)
     query = urllib.parse.urlencode(q)
@@ -203,12 +235,16 @@ def _parse_ts(s):
     return dt
 
 
-def live_claims(claims_path, max_age_hours=CLAIM_MAX_AGE_HOURS):
+def live_claims(claims_path, max_age_hours=CLAIM_MAX_AGE_HOURS, *, _locked=False):
     """Live claims: latest entry per URL is in-progress and young.
 
     The log is append-only, so a later released/applied entry supersedes
     an earlier in-progress claim from a lane that crashed or gave up.
     """
+    if not _locked:
+        with Store(claims_path):
+            return live_claims(claims_path, max_age_hours, _locked=True)
+    max_age_hours = _bounded_claim_hours(max_age_hours)
     now = datetime.datetime.now(datetime.timezone.utc)
     latest = {}
     claims, _ = read_claims(claims_path)
@@ -219,8 +255,12 @@ def live_claims(claims_path, max_age_hours=CLAIM_MAX_AGE_HOURS):
         if not url or c.get("status") != "in-progress":
             continue
         ts = _parse_ts(c.get("claimed_at", ""))
-        if ts is None:
-            continue
+        if ts is None or ts > now:
+            # Persist one repair so later reads cannot keep extending a bad
+            # timestamp. Until this bounded lease expires, preserve its owner.
+            c = dict(c, claimed_at=now.isoformat(), timestamp_repaired=True)
+            append_claim(claims_path, c)
+            ts = now
         if (now - ts).total_seconds() < max_age_hours * 3600:
             live[url] = c
     return live
@@ -245,7 +285,7 @@ def next_job(queue_path, claims_path, lane, ats=None,
 def claim(queue_path, claims_path, url, lane, ats=None):
     """Claim a job for a lane. Returns the job dict, or None."""
     with Store(claims_path):
-        claimed = live_claims(claims_path)
+        claimed = live_claims(claims_path, _locked=True)
         if norm_url(url) in claimed:
             return None
         jobs = load_queue(queue_path)
@@ -264,32 +304,35 @@ def claim(queue_path, claims_path, url, lane, ats=None):
         return job
 
 
-def _check_owner(claims_path, url, lane):
+def _check_owner(claims_path, url, lane, *, _locked=False):
     """True if lane holds the live claim (or no live claim exists)."""
-    live = live_claims(claims_path)
+    live = live_claims(claims_path, _locked=_locked)
     c = live.get(norm_url(url))
     return c is None or c.get("lane") == lane
 
 
+def heartbeat_result(claims_path, url, lane):
+    """Refresh ownership atomically and return its diagnostic status."""
+    with Store(claims_path):
+        current = live_claims(claims_path, _locked=True).get(norm_url(url))
+        if current is None:
+            return "no-live-claim"
+        if not lane or current.get("lane") != lane:
+            return "not-owner"
+        append_claim(claims_path, dict(current, claimed_at=utcnow(),
+                                       status="in-progress"))
+        return "heartbeat"
+
+
 def heartbeat(claims_path, url, lane):
     """Refresh a live claim held by this lane, never acquire a new claim."""
-    with Store(claims_path):
-        if not lane or not _check_owner(claims_path, url, lane):
-            return False
-        current = live_claims(claims_path).get(norm_url(url))
-        # _check_owner allows an absent claim for release/mark; heartbeats
-        # require a live owner so a stale lane cannot revive lost work.
-        if current is None:
-            return False
-        fresh = dict(current, claimed_at=utcnow(), status="in-progress")
-        append_claim(claims_path, fresh)
-        return True
+    return heartbeat_result(claims_path, url, lane) == "heartbeat"
 
 
 def release(claims_path, url, lane=""):
     """Release a claim; the job stays pending for another pass."""
     with Store(claims_path):
-        if lane and not _check_owner(claims_path, url, lane):
+        if lane and not _check_owner(claims_path, url, lane, _locked=True):
             return False
         append_claim(claims_path, {
             "url": url, "lane": lane, "claimed_at": utcnow(),
@@ -298,18 +341,20 @@ def release(claims_path, url, lane=""):
         return True
 
 
-def mark(queue_path, claims_path, url, status, reason="", lane=""):
-    """Set a job's terminal status and close its claim. Returns True."""
+def mark_result(queue_path, claims_path, url, status, reason="", lane=""):
+    """Set terminal status with a diagnostic determined under both locks."""
     if status not in TERMINAL:
         raise ValueError("status must be one of %s" % sorted(TERMINAL))
     with Store(queue_path):
         with Store(claims_path):
-            if lane and not _check_owner(claims_path, url, lane):
-                return False
+            if lane and not _check_owner(claims_path, url, lane, _locked=True):
+                return "not-owner"
             jobs = load_queue(queue_path)
             found = False
             for job in jobs:
                 if norm_url(job.get("url", "")) == norm_url(url):
+                    if job.get("status") == "applied" and status != "applied":
+                        return "already-applied"
                     job["status"] = status
                     if reason:
                         job["skip_reason"] = reason
@@ -317,23 +362,54 @@ def mark(queue_path, claims_path, url, status, reason="", lane=""):
                     job["resolved_by"] = lane
                     found = True
             if not found:
-                return False
+                return "not-found"
             save_queue(queue_path, jobs)
             append_claim(claims_path, {
                 "url": url, "lane": lane, "claimed_at": utcnow(),
                 "status": status, "reason": reason,
             })
-            return True
+            return "marked"
 
 
-def requeue(queue_path, claims_path, url, reason="", lane=""):
-    """Return a terminal job to pending (e.g. after a code-gate resume)."""
+
+def mark(queue_path, claims_path, url, status, reason="", lane=""):
+    """Set terminal status and close the claim; return whether it succeeded."""
+    return mark_result(queue_path, claims_path, url, status, reason, lane) == "marked"
+
+
+def begin_code_gate(queue_path, claims_path, url, lane):
+    """Persist a bounded gate attempt while the lane still holds its claim."""
     with Store(queue_path):
+        with Store(claims_path):
+            if not _check_owner(claims_path, url, lane, _locked=True):
+                return None
+            jobs = load_queue(queue_path)
+            for job in jobs:
+                if norm_url(job["url"]) != norm_url(url):
+                    continue
+                attempts = int(job.get("code_gate_attempts", 0))
+                if job.get("status") == "applied" or attempts >= 3:
+                    return None
+                job["code_gate_attempts"] = attempts + 1
+                save_queue(queue_path, jobs)
+                return attempts + 1
+    return None
+
+
+def requeue(queue_path, claims_path, url, reason=""):
+    """Return a failed job to pending; applied jobs and capped gates stay terminal."""
+    with Store(queue_path):
+        claims, _ = read_claims(claims_path)
+        if any(norm_url(c["url"]) == norm_url(url) and c.get("status") == "applied"
+               for c in claims):
+            return False
         jobs = load_queue(queue_path)
         found = False
         for job in jobs:
             if norm_url(job.get("url", "")) == norm_url(url):
-                if job.get("status", "pending") not in TERMINAL:
+                if (job.get("status", "pending") not in TERMINAL
+                        or job.get("status") == "applied"
+                        or job.get("code_gate_attempts", 0) >= 3):
                     return False
                 job["status"] = "pending"
                 job["skip_reason"] = ""
@@ -366,13 +442,13 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("next", help="print next unclaimed pending job")
-    p.add_argument("--lane", default="lane-1")
+    p.add_argument("--lane", default=default_lane())
     p.add_argument("--ats", default="",
                    help="only jobs for this ATS (e.g. greenhouse)")
 
     p = sub.add_parser("claim", help="claim a job URL for a lane")
     p.add_argument("url")
-    p.add_argument("--lane", default="lane-1")
+    p.add_argument("--lane", default=default_lane())
     p.add_argument("--ats", default="")
 
     p = sub.add_parser("heartbeat", help="refresh a live owned claim")
@@ -381,18 +457,17 @@ def main():
 
     p = sub.add_parser("release", help="release a claim")
     p.add_argument("url")
-    p.add_argument("--lane", default="lane-1")
+    p.add_argument("--lane", default=default_lane())
 
     p = sub.add_parser("mark", help="set terminal status for a job")
     p.add_argument("url")
     p.add_argument("status", choices=sorted(TERMINAL))
     p.add_argument("--reason", default="")
-    p.add_argument("--lane", default="lane-1")
+    p.add_argument("--lane", default=default_lane())
 
     p = sub.add_parser("requeue", help="return a terminal job to pending")
     p.add_argument("url")
     p.add_argument("--reason", default="")
-    p.add_argument("--lane", default="lane-1")
 
     sub.add_parser("stats", help="queue/claims summary")
 
@@ -408,19 +483,19 @@ def main():
             print("null")
             sys.exit(1)
     elif a.cmd == "heartbeat":
-        if not heartbeat(a.claims, a.url, a.lane):
-            print("not-owner")
+        result = heartbeat_result(a.claims, a.url, a.lane)
+        print(result)
+        if result != "heartbeat":
             sys.exit(1)
-        print("heartbeat")
     elif a.cmd == "release":
         print("released" if release(a.claims, a.url, a.lane)
               else "not-owner")
     elif a.cmd == "mark":
-        print("marked" if mark(a.queue, a.claims, a.url, a.status,
-                              a.reason, a.lane) else "not-found")
+        print(mark_result(a.queue, a.claims, a.url, a.status,
+                          a.reason, a.lane))
     elif a.cmd == "requeue":
         print("requeued" if requeue(a.queue, a.claims, a.url,
-                                   a.reason, a.lane) else "not-found")
+                                   a.reason) else "not-found")
     elif a.cmd == "stats":
         print(json.dumps(stats(a.queue, a.claims), indent=1))
 

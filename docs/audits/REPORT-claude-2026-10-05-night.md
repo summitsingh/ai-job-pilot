@@ -16,8 +16,8 @@ I've finished reading all six files and I'm writing up the findings now. `hard_p
    - Line 123 calls `map.py` "the single model call", which still describes the old policy.
    - Lines 124-125 say `hard_patterns`/`templates` are "zero model calls; unknown fields are skipped". That contradicts the intro (lines 8-14) and the pipeline (lines 26-28), where unmapped fields go to the model.
    - **Fix:**
-     - `map.py` — "orchestrates mapping; deterministic pass first, one strict-JSON model call only for unmapped or low-confidence fields".
-     - `hard_patterns.py`/`templates.py` — "deterministic answers; no model calls inside these modules".
+     - `map.py` - "orchestrates mapping; deterministic pass first, one strict-JSON model call only for unmapped or low-confidence fields".
+     - `hard_patterns.py`/`templates.py` - "deterministic answers; no model calls inside these modules".
      - Reconcile this with safety invariant 1 ("no answer → `skip`").
 
 3. **`AGENTS-root.md:12-16` and `:43-47`: model dependency is unclear.**

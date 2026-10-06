@@ -102,6 +102,20 @@ empty code boxes:
    is no resend control on the gate page; submitting the form again
    triggers a fresh code email.
 
+The queue-driven Greenhouse lane uses `codegate.coordinate` with `CliNotifier`
+to wait for a human code. On verified confirmation it marks the job `applied`
+and records tracker `Applied`. Never requeue after success. Failed or expired
+attempts can requeue for a later run, up to 3 persisted attempts per job; the
+third failure stays blocked with evidence. Missing stdin (`no_input`) and
+ambiguous submitted-code outcomes stay blocked for human review. Before every
+submit, queue/claims/tracker Applied history prevents resubmission. If using
+`code_gate.py` manually for a parked lane job, mark applied and record Applied
+only after checking its confirmation result.
+
+The lane heartbeats after claim, before submit, and after submit. Its dry-run
+always releases the claim and never writes tracker rows or terminal marks,
+including failure outcomes. Location descriptors are validated before claims.
+
 ## Safety invariants (never break these)
 
 1. NEVER invent applicant facts. If a field has no answer in facts.json,
@@ -161,7 +175,22 @@ empty code boxes:
 - `config.py`: config.json loading (env vars override file)
 - `tracker.py`: application tracking (JSONL, Google Sheets, Notion)
 - `sweep.py`: posting vetting funnel (title/location/salary/sponsorship
-  filters, dedup, queue writing)
+  filters, persistent role fingerprints, locked queue writing)
 - `config.example.json`: env var template (copy to config.json)
+- `setup_wizard.py`: setup defaults to cwd; credential exports use placeholders;
+  alternate config paths print `JOBPILOT_CONFIG`
+- `codegate.py`: human-input coordinator wired into the Greenhouse lane
+- `submit_watchdog.py`: ambiguous submits block; one safe recovery click maximum
+- `location_check.py`: startup descriptor validation and post-fill location gate
+- `analytics.py`, `scoreboard.py`: tracker funnel and lane outcome summaries
+- `model.py`: bounded backup calls, cooperative cancellation and telemetry
+- `terminal_output.py`: strips terminal controls from printed posting data
+- `docs/setup.md`: setup wizard instructions
 - `test_operation.py`: offline tests for queue/tracker/sweep/launcher
 - `facts.example.json`: template for the applicant's private facts
+
+Location configuration has no default metro. Configure `JOBPILOT_TARGET_METROS`
+with the applicant's allowed cities or remote qualifier before a lane run; empty
+configuration stops before claims. Default queue owner tokens include hostname
+and process ID. Use an explicit unique `JOBPILOT_LANE` to manage the same owner
+from operator commands in another process.

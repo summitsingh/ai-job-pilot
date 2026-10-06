@@ -68,4 +68,5 @@ py-modules = [
     "indeed_fill",
     "scoreboard",
     "analytics",
+    "terminal_output",
 ]

@@ -61,10 +61,10 @@ and applies, in order:
 ```bash
 python3 sweep.py --in raw.json --applied applications.jsonl \
   --queue queue.json --min-salary 100000 --source "sweep 2026-01-15"
-python3 sweep.py --in raw.json --dry-run   # stats only, no writes
+python3 sweep.py --in raw.json --dry-run   # queue-safe review
 ```
 
-`--queue` defaults to `./queue.json`. Output is queue-shaped job dicts
+`--queue` defaults to empty (stats only unless a queue is supplied). Output is queue-shaped job dicts
 (see `docs/queue.md`), appended with dedup against what is already
 queued.
 
@@ -92,3 +92,37 @@ rules. Proven source shapes:
   `https://api.ashbyhq.com/posting-api/job-board/<board>?includeCompensation=true`
   returns the board's postings as JSON (add the compensation flag if
   salary matters).
+
+## Persistent duplicate checks
+
+With `--queue queue.json`, sweeps load and append normalized company, title,
+and location fingerprints in `queue-fingerprints.jsonl`. `--fingerprints PATH`
+selects a different history file. Each run also checks existing queue entries
+and metadata from `--applied`, so a role reposted under a new URL in a later
+sweep is withheld for human review. The history stores posting identities only,
+not applicant answers, and is gitignored. Dry-run reads it without writing.
+
+The queue read-modify-write holds `job_queue.Store` for the entire transaction,
+then locks the fingerprint file in that order. Lane terminal marks cannot be
+overwritten by a sweep's stale queue snapshot. Lock scope remains one POSIX host.
+
+
+## Fuzzy duplicate review
+
+Company and location keys and title token sets are computed once per posting,
+then compared within company/location/seniority buckets. Senior, Staff, Lead
+and Principal remain distinct, even for long titles; Sr and Senior are equivalent.
+Unicode casefold and NFKD normalization preserve non-ASCII names and normalize
+accent variants. C++ and C# remain different tokens. Full US state names and
+abbreviations normalize alike (Austin, Texas and Austin, TX); different states
+remain distinct. Older fingerprints that discarded seniority lack that evidence
+and cannot reliably match a newly seniority-specific role.
+
+Identical role titles can represent separate openings. Matching roles are
+withheld for human review, never silently merged. Any sweep with duplicate
+pairs saves a unique `sweep-review-*.json` file under `--workdir` (default
+`/tmp/jobpilot`, outside the checkout) and prints its path as `review_file` in
+stats. For a repo-local destination, use the already gitignored `workdir/`.
+Review files contain the source and withheld posting URLs only. Dry-run also
+saves duplicate review evidence, while leaving queue and fingerprints untouched.
+Without duplicate pairs, no review artifact is written.

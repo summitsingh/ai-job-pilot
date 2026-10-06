@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Handle the Greenhouse email verification code gate.
+"""Standalone browser CLI for a parked Greenhouse verification gate.
+
+codegate.py is the lane coordinator library for bounded human waiting and
+retry callbacks; this CLI handles browser boxes and manual confirmation.
 
 Usage: code_gate.py --port 9226 --workdir /tmp/jobpilot/run1
 
@@ -19,11 +22,13 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import cdp_ok
+from submit_watchdog import CONFIRM_RE
 
 GATE_JS = """(() => {
   const text = (document.body.innerText || '').toLowerCase();
@@ -117,8 +122,8 @@ def main():
     # 2. prompt the operator (human-in-the-loop; never guess)
     code = input("Enter the 8-character verification code from email: "
                  ).strip()
-    if len(code) != 8:
-        result["note"] = f"code must be 8 characters, got {len(code)}"
+    if not re.fullmatch(r"[A-Za-z0-9]{8}", code):
+        result["note"] = "code must be 8 ASCII letters or digits"
         json.dump(result, open(os.path.join(a.workdir, "code_gate.json"),
                                "w"), indent=1)
         print(json.dumps(result, indent=1))
@@ -145,7 +150,7 @@ def main():
     text = cdp_ok(a.port, "text", "4000", timeout=60).get("text", "")
     result["url"] = url
     result["confirmed"] = ("/confirmation" in url or
-                           "thank you for applying" in text.lower())
+                           bool(CONFIRM_RE.search(text)))
     json.dump(result, open(os.path.join(a.workdir, "code_gate.json"), "w"),
               indent=1)
     print(json.dumps(result, indent=1))
