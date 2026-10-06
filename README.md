@@ -31,7 +31,7 @@ Production verification numbers, not benchmarks:
 - **Ashby + Lever:** 82/82 fields verified across 8 real forms, zero model calls
 - **Workable:** 7/9 fill actions verified on a live form (2026-10-04); the 2
   failures were address-autocomplete sub-fields, no Workable-specific code needed
-- **Offline tests:** 224 passing (24 fill-core, 54 operation, 50 reliability,
+- **Offline tests:** 234 passing (34 fill-core, 54 operation, 50 reliability,
   48 tracking, 48 human/setup). Run `python3 -m unittest discover`.
   No browser, model server, or network required.
 - **Live submits:** confirmed via `/confirmation` URL plus "Thank you for applying" page text
