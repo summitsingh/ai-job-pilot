@@ -456,6 +456,8 @@ def map_fields(schema, facts, ats="unknown"):
     mapped = dedupe_source_checkboxes(mapped, schema, facts)
     mapped = dedupe_radio_clicks(mapped, schema)
     mapped = apply_work_auth_overrides(mapped, schema)
+    mapped = apply_work_auth_select_overrides(mapped, schema)
+    mapped = apply_acknowledge_override(mapped, schema)
     mapped = apply_prev_employed_override(mapped, schema, facts)
     return {"map": mapped, "skipped_by_guard": guarded, "unmapped": unmapped,
             "note": tmpl.get("note", "") + "+model-backup"}
@@ -546,6 +548,78 @@ def apply_work_auth_overrides(mapped, schema):
                                    "value": want_opt, "note": note})
                     matched = True
                     break
+    return mapped
+
+
+def apply_work_auth_select_overrides(mapped, schema):
+    """Extend work-auth overrides to select/custom-select fields (Greenhouse
+    uses custom dropdowns for sponsorship questions). For each select whose
+    label matches a known work-auth pattern, choose the option matching the
+    facts-driven answer."""
+    by_key = {f["key"]: f for f in schema.get("fields", [])}
+    seen = {e["field"] for e in mapped}
+    for f in schema.get("fields", []):
+        ftype = (f.get("type") or "").lower()
+        if ftype not in ("select", "custom-select"):
+            continue
+        override = work_auth_override({"label": f.get("label") or ""})
+        if not override:
+            continue
+        want_opt, note = override
+        opts = [str(o) for o in (f.get("options") or [])]
+        # pick the option that is exactly the want, else starts with it
+        pick = None
+        for o in opts:
+            if o.strip().lower() == want_opt.lower():
+                pick = o
+                break
+        if not pick:
+            for o in opts:
+                if o.strip().lower().startswith(want_opt.lower()):
+                    pick = o
+                    break
+        if not pick:
+            continue
+        key = f["key"]
+        if key in seen:
+            for e in mapped:
+                if e["field"] == key:
+                    e["action"] = "select"
+                    e["value"] = pick
+                    e["note"] = note
+                    e.pop("guard", None)
+        else:
+            mapped.append({"field": key, "action": "select",
+                           "value": pick, "note": note})
+    return mapped
+
+
+# Narrow exception: "Acknowledge/Confirm" privacy checkbox. Standard
+# privacy-policy acknowledgement (required to submit). The model never
+# decides this; we click ONLY when the option label is exactly
+# "Acknowledge/Confirm" and the label carries no arbitration, background
+# check, drug test, or assessment language.
+ACK_RE = re.compile(r"^acknowledge/confirm$", re.IGNORECASE)
+ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
+                        r"criminal|credit.?check|security.?clearance",
+                        re.IGNORECASE)
+
+
+def apply_acknowledge_override(mapped, schema):
+    """Click the narrow "Acknowledge/Confirm" privacy checkbox; legal-weight
+    language stays skipped for human review."""
+    by_key = {f["key"]: f for f in schema.get("fields", [])}
+    for e in mapped:
+        f = by_key.get(e["field"], {})
+        if (f.get("type") or "").lower() != "checkbox":
+            continue
+        ol = (f.get("option_label") or "").strip()
+        lab = (f.get("label") or "")
+        if ACK_RE.match(ol) and not ACK_BAD_RE.search(lab):
+            e["action"] = "click"
+            e["value"] = ol
+            e["note"] = "privacy-ack"
+            e.pop("guard", None)
     return mapped
 
 
