@@ -17,3 +17,4 @@ shots/
 
 # Local lane config (copy of config.example.json)
 config.json
+model_telemetry.jsonl

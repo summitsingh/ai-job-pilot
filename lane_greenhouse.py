@@ -13,8 +13,11 @@ Pipeline per job:
      local model only for unmapped or low-confidence fields)
   5. fill.apply_fill (no model calls inside the fill)
   6. validity gate: form.checkValidity() must be clean
-  7. submit click (skipped with --no-submit)
-  8. outcome detection: code gate | submitted | unconfirmed
+  6c. location verifier: the filled location must match a target metro
+  7. submit click (skipped with --no-submit or --dry-run)
+  8. submit watchdog (submit_watchdog.py): detects a swallowed click and
+     walks a wait / re-click / JS-click ladder; outcome is code gate |
+     submitted | unconfirmed | blocked
   9. tracker.py record + job_queue.py mark applied/skipped/blocked/dead
 
 Config (env vars, see config.example.json):
@@ -25,15 +28,21 @@ Config (env vars, see config.example.json):
   JOBPILOT_CLAIMS     claims.jsonl path
   JOBPILOT_LANE       lane name, e.g. mac-mini:9445
   TRACKER_BACKENDS    comma-separated tracker backends (default: jsonl)
+  JOBPILOT_TARGET_METROS  allowed locations, e.g. "Austin, TX; Remote (US)"
+  JOBPILOT_SUBMIT_WAIT_S / _RECHECKS / _POLL_S  submit watchdog timing
 
 The Greenhouse code gate is human-in-the-loop by design: when it appears
-the lane releases its claim, writes result.json with status "code-gate",
-and exits. Run code_gate.py (or enter the code manually), then mark the
-job applied. Never guess or brute-force codes.
+the lane marks the job blocked, writes result.json with status "code-gate",
+and exits. Run code_gate.py (or enter the code manually), then requeue
+the job after human handling. Never guess or brute-force codes.
 
 Usage:
   python3 lane_greenhouse.py --workdir /tmp/jobpilot/lane1 [--no-submit]
   python3 lane_greenhouse.py --workdir /tmp/jobpilot/lane1 --max-jobs 10
+  python3 lane_greenhouse.py --workdir /tmp/jobpilot/lane1 --dry-run
+
+--dry-run fills and checks the form, saves dryrun.png, and prints the field
+map for first-run approval. Consent still requires explicit human approval.
 """
 import argparse
 import base64
@@ -53,6 +62,8 @@ from job_queue import claim, next_job, release, mark, requeue
 from tracker import build_record, track
 from config import load_config
 from map import GUARD_RE
+from location_check import verify_location, load_target_metros
+from submit_watchdog import check_submit, load_watchdog_cfg
 
 DEAD_RE = re.compile(r"page not found|no longer active|job not found",
                      re.I)
@@ -87,6 +98,53 @@ SUBMIT_JS = """(() => {
   el.click();
   return {found: true, clicked: true};
 })()"""
+
+NORMAL_CLICK_SELECTOR = ("#submit_app, form input[type=submit], "
+                         "form button[type=submit]")
+
+
+class CdpSubmitAdapter:
+    """submit_watchdog adapter backed by this lane's CDP driver."""
+
+    def __init__(self, cdp_url):
+        self.cdp_url = cdp_url
+
+    def current_url(self):
+        cur = cdp_value(cdp(self.cdp_url, "url"))
+        return str(cur.get("url", cur) if isinstance(cur, dict) else cur)
+
+    def page_text(self, limit):
+        page = cdp_value(cdp(self.cdp_url, "text", str(limit)))
+        return str(page.get("text", page) if isinstance(page, dict)
+                   else page)
+
+    def click_submit(self, mode):
+        if mode == "js":
+            r = cdp_value(cdp(self.cdp_url, "evalb64", b64(SUBMIT_JS)))
+            return r if isinstance(r, dict) else {"clicked": False}
+        r = cdp(self.cdp_url, "fclick", b64(NORMAL_CLICK_SELECTOR))
+        return {"clicked": bool(r.get("ok")), "found": bool(r.get("ok"))}
+
+
+def location_values(per, schema):
+    """Final filled values of location fields: [(field_key, value)].
+
+    A field counts as a location field when its fill action is "location",
+    its key contains "location", or its schema label mentions location.
+    Uses the post-fill readback ("actual"), not the typed string.
+    """
+    labels = {f.get("key"): (f.get("label") or "")
+              for f in schema.get("fields", [])}
+    out = []
+    for p in per:
+        key = p.get("field") or ""
+        if (p.get("action") == "location" or "location" in key.lower()
+                or "location" in labels.get(key, "").lower()):
+            actual = p.get("actual")
+            if actual in (None, "<not-found>"):
+                actual = ""
+            out.append((key, str(actual)))
+    return out
 
 
 def log(*a):
@@ -142,7 +200,39 @@ def slug(url):
     return (s or "job")[:40]
 
 
-def run_job(job, cfg, no_submit):
+def format_field_map(fmap):
+    """Render mapped answers and skips as a human-readable review table."""
+    rows = [("Field label/key", "Value or SKIP + reason")]
+    seen = set()
+    for entry in fmap.get("map", []):
+        key = str(entry.get("field") or entry.get("key") or "?")
+        seen.add(key)
+        label = entry.get("label")
+        field = "%s [%s]" % (label, key) if label else key
+        if entry.get("action") == "skip":
+            value = "SKIP: " + str(entry.get("reason") or entry.get("note")
+                                   or "no truthful answer available")
+            if entry.get("value") not in (None, ""):
+                value += " (value: %s)" % entry["value"]
+        else:
+            value = str(entry.get("value", ""))
+        rows.append((field, value))
+    for entry in fmap.get("unmapped", []):
+        key = str(entry.get("field") or entry.get("key") or "?") \
+            if isinstance(entry, dict) else str(entry)
+        if key not in seen:
+            rows.append((key, "SKIP: unmapped"))
+    # Escape line breaks and tabs so each answer stays in its own row.
+    rows = [tuple(v.replace("\n", "\\n").replace("\r", "\\r")
+                  .replace("\t", "\\t") for v in row) for row in rows]
+    width = max(len(row[0]) for row in rows)
+    return "\n".join([rows[0][0].ljust(width) + " | " + rows[0][1],
+                      "-" * width + "-+-" + "-" * len(rows[0][1])] +
+                     [key.ljust(width) + " | " + value
+                      for key, value in rows[1:]])
+
+
+def run_job(job, cfg, no_submit, dry_run=False):
     """Work one claimed job. Returns a result dict."""
     cdp_url, port = cfg["cdp_url"], cfg["port"]
     work = cfg.get("job_workdir") or os.path.join(
@@ -150,6 +240,9 @@ def run_job(job, cfg, no_submit):
     os.makedirs(work, exist_ok=True)
     out = {"url": job["url"], "company": job.get("company", ""),
            "title": job.get("title", ""), "lane": cfg["lane"]}
+
+    if dry_run:
+        out["dry_run"] = True
 
     # 1-2. fresh tab + navigate
     cdp(cdp_url, "reset")
@@ -195,6 +288,12 @@ def run_job(job, cfg, no_submit):
     from map import map_fields
     facts = json.load(open(cfg["facts"]))
     fmap = map_fields(schema, facts, ats="greenhouse")
+    if dry_run:
+        labels = {f["key"]: f.get("label", "")
+                  for f in schema.get("fields", [])}
+        review = dict(fmap, map=[dict(e, label=labels.get(e.get("field"), ""))
+                                 for e in fmap.get("map", [])])
+        log(format_field_map(review))
     guarded = fmap.get("skipped_by_guard", [])
     log("mapped:", len(fmap["map"]), "guarded:", len(guarded),
         "unmapped:", len(fmap.get("unmapped", [])))
@@ -217,6 +316,18 @@ def run_job(job, cfg, no_submit):
         out["not_applied"] = [
             {"field": p.get("field"), "note": str(p.get("note", ""))[:120]}
             for p in not_applied[:10]]
+
+    # 5b. location verifier: autocompletes can pick a lookalike city
+    # ("Austintown, Ohio" for "Austin, Texas"). Fail closed: flag for
+    # review instead of submitting.
+    metros = cfg.get("target_metros") or load_target_metros()
+    for key, val in location_values(per, schema):
+        chk = verify_location(val, metros)
+        if not chk["ok"]:
+            out.update(status="blocked",
+                       reason="location check (flag for review): "
+                       + chk["reason"])
+            return out
 
     # 6. validity gate: fail closed on any evaluation problem
     eval_res = cdp(cdp_url, "evalb64", b64(VALIDITY_GATE_JS))
@@ -242,33 +353,49 @@ def run_job(job, cfg, no_submit):
                    ", ".join(missing[:5]))
         return out
 
-    if no_submit:
+    if dry_run:
+        shot_path = os.path.join(work, "dryrun.png")
+        shot = cdp(cdp_url, "shot", shot_path)
+        if not shot.get("ok") or not os.path.isfile(shot_path):
+            out.update(status="blocked", reason="dry-run screenshot failed")
+            return out
+        out["screenshot"] = shot_path
+
+    if no_submit or dry_run:
         out.update(status="ready", work=work)
         return out
 
-    # 7. submit: one form-scoped find+click, verified
-    clicked = cdp_value(cdp(cdp_url, "evalb64", b64(SUBMIT_JS)))
-    if not (isinstance(clicked, dict) and clicked.get("clicked")):
+    # 7. submit: one click, then the watchdog owns outcome detection
+    adapter = CdpSubmitAdapter(cdp_url)
+    started_url = adapter.current_url()
+    clicked = adapter.click_submit("normal")
+    if not clicked.get("clicked"):
+        clicked = adapter.click_submit("js")
+    if not clicked.get("clicked"):
         out.update(status="blocked",
                    reason="submit control not found or not clicked")
         return out
-    time.sleep(10)
 
-    # 8. outcome
-    page = cdp_value(cdp(cdp_url, "text", "6000"))
-    page_txt = str(page.get("text", page) if isinstance(page, dict)
-                   else page)
-    url_after = json.dumps(cdp(cdp_url, "url"))
-    if CODE_GATE_RE.search(page_txt):
+    # 8. outcome. Re-clicks only happen while the page is unchanged, so a
+    # slow-but-real submit is never doubled; the code gate stays human.
+    wd = check_submit(adapter, started_url,
+                      cfg.get("watchdog") or load_watchdog_cfg())
+    out["watchdog"] = {"ladder": wd["ladder"], "evidence": wd["evidence"]}
+    snippet = wd["evidence"].get("page_snippet", "")
+    if wd["outcome"] == "code-gate":
         out.update(status="code-gate",
                    reason="Greenhouse 8-char email code gate; "
                    "operator must enter the code, then mark applied")
-    elif CONFIRM_RE.search(page_txt) or "/confirmation" in url_after:
-        out.update(status="submitted",
-                   confirmation_evidence=page_txt[:300])
+    elif wd["outcome"] == "confirmed":
+        out.update(status="submitted", confirmation_evidence=snippet)
+    elif wd["outcome"] == "error":
+        out.update(status="blocked",
+                   reason="submit watchdog: " +
+                   wd["evidence"].get("note", "error after submit"))
     else:
         out.update(status="unconfirmed",
-                   reason="no confirmation text or URL after submit")
+                   reason="no confirmation text or URL after submit "
+                   "(watchdog ladder: %s)" % ", ".join(wd["ladder"]))
     return out
 
 
@@ -329,6 +456,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--workdir", required=True)
     ap.add_argument("--no-submit", action="store_true")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="fill, check, screenshot and print answers, then stop")
     ap.add_argument("--max-jobs", type=int, default=0,
                     help="0 = run until the queue is empty")
     a = ap.parse_args()
@@ -399,10 +528,12 @@ def main():
         os.makedirs(work, exist_ok=True)
         cfg["job_workdir"] = work
         try:
-            result = run_job(job, cfg, a.no_submit)
+            result = run_job(job, cfg, a.no_submit, dry_run=a.dry_run)
         except Exception as e:
             result = {"url": job["url"], "status": "blocked",
                       "reason": "lane exception: %r" % e}
+            if a.dry_run:
+                result["dry_run"] = True
             log("EXCEPTION:", e)
         try:
             json.dump(result, open(os.path.join(work, "result.json"), "w"),
@@ -415,6 +546,9 @@ def main():
             release(cfg["claims"], job["url"], cfg["lane"])
             terminal = "finalize-error"
         log("RESULT:", result.get("status"), "->", terminal)
+        if a.dry_run:
+            done += 1
+            break
         if terminal == "code-gate":
             log("CODE GATE: enter the 8-char email code for the posting, "
                 "then requeue it with: "

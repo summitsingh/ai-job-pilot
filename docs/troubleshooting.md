@@ -99,3 +99,19 @@
 - Check for a JavaScript-enforced cover letter the schema marked
   optional, and re-verify the location autocomplete did not pick the
   wrong city. See `docs/greenhouse-quirks.md`.
+
+**Submit click swallowed (lane).**
+- `submit_watchdog.py` handles this in the lane: after the click it polls
+  for a confirmation, code gate, or form error. If the page is unchanged
+  it waits, re-clicks normally, then clicks through JS, and finally gives
+  up with `status: unconfirmed` and the ladder plus before/after URLs and a
+  page snippet under `watchdog` in `result.json`. It never re-clicks once
+  the URL moved or an error shows. Tune with `JOBPILOT_SUBMIT_WAIT_S`,
+  `JOBPILOT_SUBMIT_RECHECKS`, `JOBPILOT_SUBMIT_POLL_S`.
+
+**Location autocomplete picked a lookalike city.**
+- A form once picked "Austintown, Ohio" for "Austin, Texas". The lane now
+  checks the filled location against `JOBPILOT_TARGET_METROS`
+  (`location_check.py`): city as a whole word AND the state must match, so
+  a bare "austin" substring never passes. A mismatch or empty value returns
+  `status: blocked` with the reason; review the field, do not submit.

@@ -10,14 +10,20 @@ native API for strict-JSON field mapping. Configure with:
                        or "ollama" (native /api/chat with `format`)
   JOBPILOT_MODEL_NAME  primary model id (default: qwen/qwen3-coder-next)
   JOBPILOT_BACKUP_MODELS  comma-separated fallback model ids
+  JOBPILOT_MODEL_MAX_TOKENS     budgeted_chat max_tokens ceiling (default 2000)
+  JOBPILOT_MODEL_WALL_TIMEOUT_S budgeted_chat wall-clock budget (default 300)
+  JOBPILOT_MODEL_TELEMETRY      budgeted_chat JSONL log
+                                (default: model_telemetry.jsonl next to this file)
 
 Strict JSON: uses response_format json_schema with strict:true on the
 OpenAI-compatible /v1/chat/completions endpoint. Retry with exponential
 backoff; on repeated failure walks the fallback chain.
 """
+import datetime
 import json
 import os
 import sys
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -215,6 +221,105 @@ def chat(system, user, schema_name, schema, max_tokens=2000, temperature=0.1,
         f"model call failed on {[MODEL] + BACKUP_MODELS} "
         f"after {retries} tries each: {last}"
     )
+
+
+DEFAULT_MAX_TOKENS = 2000
+DEFAULT_WALL_TIMEOUT_S = 300
+DEFAULT_TELEMETRY = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "model_telemetry.jsonl")
+
+
+class ModelBudgetExceeded(TimeoutError):
+    """Raised by budgeted_chat when the wall-clock budget expires."""
+
+
+def _env_num(key, default, cast):
+    try:
+        v = cast(os.environ.get(key, default))
+        return v if v > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _write_telemetry(path, rec):
+    """Append one JSON line. Telemetry must never break a model call."""
+    try:
+        with open(path, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except OSError:
+        pass
+
+
+def budgeted_chat(system, user, schema_name, schema, max_tokens=2000,
+                  temperature=0.1, retries=3, timeout=180,
+                  telemetry_path=None, wall_timeout=None):
+    """chat() with a token ceiling, a hard wall-clock budget, and telemetry.
+
+    - max_tokens is clamped to JOBPILOT_MODEL_MAX_TOKENS (default 2000).
+    - The whole call (all retries and fallback models) must finish within
+      wall_timeout seconds (default JOBPILOT_MODEL_WALL_TIMEOUT_S, 300), even
+      if the server keeps dribbling tokens. `timeout` stays chat()'s
+      per-request socket timeout, which a dribbling server can defeat.
+    - On expiry raises ModelBudgetExceeded (a TimeoutError) with
+      "wall-clock budget exceeded" in the message.
+    - One JSON line per call is appended to the telemetry file. Token counts
+      are not plumbed through _chat_once, so "tokens" is null, never guessed.
+
+    chat() runs in a daemon worker thread. A Python thread cannot be force-
+    killed, so on timeout it is left orphaned and may finish in the
+    background; its result is discarded. That is why the timeout is fail-
+    closed at the caller level: callers must treat it as "no answer", never
+    retry blindly in a loop.
+
+    On success returns exactly what chat() returns.
+    """
+    ceiling = _env_num("JOBPILOT_MODEL_MAX_TOKENS", DEFAULT_MAX_TOKENS, int)
+    effective = min(int(max_tokens), ceiling)
+    wall = (float(wall_timeout) if wall_timeout is not None else
+            _env_num("JOBPILOT_MODEL_WALL_TIMEOUT_S",
+                     DEFAULT_WALL_TIMEOUT_S, float))
+    path = telemetry_path or os.environ.get("JOBPILOT_MODEL_TELEMETRY",
+                                            DEFAULT_TELEMETRY)
+    box = {}
+
+    def work():
+        try:
+            box["result"] = chat(system, user, schema_name, schema,
+                                 max_tokens=effective,
+                                 temperature=temperature, retries=retries,
+                                 timeout=timeout)
+        except BaseException as e:
+            box["error"] = e
+
+    t0 = time.monotonic()
+    th = threading.Thread(target=work, daemon=True)
+    th.start()
+    th.join(wall)
+    latency = round(time.monotonic() - t0, 3)
+    if th.is_alive():
+        status, err = "timeout", ("wall-clock budget exceeded: %ss for %s"
+                                  % (wall, schema_name))
+    elif "error" in box:
+        status, err = "error", repr(box["error"])[:300]
+    else:
+        status, err = "ok", None
+    _write_telemetry(path, {
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "model_chain": [MODEL] + BACKUP_MODELS,
+        "schema_name": schema_name,
+        "max_tokens_requested": max_tokens,
+        "max_tokens_effective": effective,
+        "wall_timeout_s": wall,
+        "latency_s": latency,
+        "tokens": None,
+        "status": status,
+        "error": err,
+    })
+    if status == "timeout":
+        raise ModelBudgetExceeded(err)
+    if status == "error":
+        raise box["error"]
+    return box["result"]
 
 
 if __name__ == "__main__":
