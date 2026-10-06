@@ -451,6 +451,12 @@ def r_verify_identity(f, facts, ats):
     return ("opt", ["Yes"], "identity-verification-yes")
 
 
+def r_authorized_yes(f, facts, ats):
+    # "Legally authorized to work" -> Yes (facts work_authorization).
+    # Excludes "without sponsorship" phrasing (handled by sponsorship).
+    return ("opt", ["Yes"], "work-auth-authorized-yes")
+
+
 def r_military_no(f, facts, ats):
     # Not a veteran; not military spouse; not National Guard/Reserves.
     return ("opt", ["No", "I am not a veteran", "not a veteran"],
@@ -572,6 +578,16 @@ PATTERNS = [
     ("verify-identity",
      re.compile(r"verification of your (identity|identify) upon hire|verify.*identity", re.I),
      r_verify_identity, None),
+    # "legally authorized to work" (Ashby yes/no buttons, radio groups) ->
+    # Yes per facts. Excludes "without sponsorship" phrasing.
+    ("workauth-authorized",
+     re.compile(r"(legally )?authorized to work(?!.*without sponsorship)|"
+                r"have authorization to work", re.I),
+     r_authorized_yes, None),
+    # currently living in the country -> Yes
+    ("currently-live-us",
+     re.compile(r"currently live in the (united states|us|u\.s\.)|currently reside in the (united states|us)", re.I),
+     r_yes, {"radio", "yesno-button", "select", "custom-select"}),
     # military spouse / National Guard / Reserves -> No (not a veteran)
     ("military-no",
      re.compile(r"military spouse|national guard|reserves|armed forces", re.I),
@@ -685,9 +701,17 @@ def map_template(schema, facts, ats="unknown"):
     # - SMS outreach consent mentioning "Visa" (the company): not a work-auth
     #   visa question; handled by the sms-consent pattern (Opt-Out).
     SPONSORSHIP_OPT_GUARD_EXC = re.compile(
-        r"will require sponsorship|sponsorship in the future", re.IGNORECASE)
+        r"will require sponsorship|sponsorship in the future|"
+        r"will require .*sponsor|require employment visa sponsorship|"
+        r"require.*sponsors|future.*sponsor", re.IGNORECASE)
     SMS_CONSENT_GUARD_EXC = re.compile(
         r"via sms|sms.*application|message and data rates", re.IGNORECASE)
+    # "Legally authorized to work" has a deterministic facts-driven answer
+    # (Yes); exempt it from guard so the workauth-authorized pattern
+    # answers it. Keep guarding the "without sponsorship" variant.
+    AUTHORIZED_YES_GUARD_EXC = re.compile(
+        r"legally authorized to work(?!.*without sponsorship)|have authorization to work",
+        re.IGNORECASE)
     for f in fields:
         blob = label_blob(f)
         if GUARD_RE.search(blob):
@@ -695,6 +719,8 @@ def map_template(schema, facts, ats="unknown"):
                 continue  # handled by the workauth-sponsorship pattern
             if SMS_CONSENT_GUARD_EXC.search(blob):
                 continue  # handled by the sms-consent pattern (Opt-Out)
+            if AUTHORIZED_YES_GUARD_EXC.search(blob):
+                continue  # handled by the workauth-authorized pattern (Yes)
             add(f["key"], "skip", "", guard=True)
 
     # 2) group questions; answer per group or per singleton
