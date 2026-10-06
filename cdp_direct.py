@@ -22,6 +22,7 @@ All output is a single JSON line: {"ok": true, ...} or {"ok": false, "error": ..
 Selectors pass through base64 so digit-leading ids and quotes survive the shell.
 """
 import sys
+import os
 import json
 import socket
 import base64
@@ -134,6 +135,11 @@ def get_targets():
 
 def page_ws():
     targets = [t for t in get_targets() if t.get("type") == "page"]
+    # Prefer a specific tab when set (multi-tab debugging).
+    prefer = os.environ.get("JOBPILOT_TAB_ID")
+    if prefer:
+        targets = ([t for t in targets if t.get("id") == prefer] +
+                   [t for t in targets if t.get("id") != prefer])
     if not targets:
         http_put("/json/new?about:blank")
         time.sleep(1)
