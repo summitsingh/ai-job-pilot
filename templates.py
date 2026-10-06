@@ -523,6 +523,17 @@ def r_discipline(f, facts, ats):
     return ("opt", majors + ["Other"], "discipline")
 
 
+def r_inoffice(f, facts, ats):
+    # In-office / hybrid / onsite willingness: facts-driven, default yes.
+    ftype = (f.get("type") or "").lower()
+    if ftype in ("select", "custom-select"):
+        return ("opt", ["Yes, in-office", "onsite", "I already live",
+                        "willing to relocate"],
+                "willing-in-office")
+    return ("do", "fill", facts.get("willing_in_office") or
+            "Yes, I am willing to work in-office.", "willing-in-office")
+
+
 def r_military_no(f, facts, ats):
     # Not a veteran; not military spouse; not National Guard/Reserves.
     return ("opt", ["No", "I am not a veteran", "not a veteran"],
@@ -630,6 +641,10 @@ PATTERNS = [
     ("willing-onsite", re.compile(r"on-?site|in.?office|in.?person|hybrid",
                                   re.I), r_yes, None),
     ("willing-travel", re.compile(r"\btravel\b", re.I), r_yes, None),
+    ("willing-commute", re.compile(r"\bcommute\b", re.I), r_yes, None),
+    ("inoffice-willingness", re.compile(r"in-office|in office|on-site|onsite|hybrid.*prefer|"
+                                        r"work.*five days.*office|office.*five days", re.I),
+     r_inoffice, {"text", "textarea", "select", "custom-select"}),
     ("willing-start-flex", re.compile(r"flexible.*start|start.*flexible|"
                                       r"available.*start", re.I), r_yes, None),
     ("start-date", re.compile(r"when can you start|start date", re.I),
