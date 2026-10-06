@@ -15,7 +15,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from templates import map_template
-from hard_patterns import matches
+from hard_patterns import (matches, pick_sponsorship_option,
+                            is_country_visa_option, is_sponsorship_field)
 from batch_apply import load_dedup_set, match_resume
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -112,6 +113,47 @@ class TestMatches(unittest.TestCase):
 
     def test_digit_tolerant(self):
         self.assertTrue(matches("5551234567", "(555) 123-4567"))
+
+
+class TestSponsorship(unittest.TestCase):
+    def test_picks_yes_over_country_visa(self):
+        idx, text = pick_sponsorship_option(
+            ["Netherlands Highly Skilled Migrant Visa", "Yes"])
+        self.assertEqual((idx, text), (1, "Yes"))
+
+    def test_rejects_all_country_visa_options(self):
+        idx, text = pick_sponsorship_option(
+            ["Netherlands Highly Skilled Migrant Visa",
+             "Germany EU Blue Card visa"])
+        self.assertIsNone(idx)
+        self.assertIsNone(text)
+
+    def test_fails_loudly_when_no_safe_option(self):
+        idx, text = pick_sponsorship_option(["Maybe", "Prefer not to say"])
+        self.assertIsNone(idx)
+        self.assertIsNone(text)
+
+    def test_substring_fallback_never_picks_country_visa(self):
+        # A visa option whose text mentions sponsorship must still be
+        # rejected by the country-visa filter before the substring fallback.
+        idx, text = pick_sponsorship_option(
+            ["I will require sponsorship: Netherlands visa"])
+        self.assertIsNone(idx)
+
+    def test_country_visa_detection(self):
+        self.assertTrue(is_country_visa_option(
+            "Netherlands Highly Skilled Migrant Visa"))
+        self.assertTrue(is_country_visa_option("Germany EU Blue Card visa"))
+        self.assertTrue(is_country_visa_option("UK Skilled Worker visa"))
+        self.assertFalse(is_country_visa_option(
+            "Yes, I will require sponsorship"))
+        self.assertFalse(is_country_visa_option("No"))
+
+    def test_sponsorship_field_detection(self):
+        self.assertTrue(is_sponsorship_field("sponsorship_question", "Yes"))
+        self.assertTrue(is_sponsorship_field("visa_type", ""))
+        self.assertTrue(is_sponsorship_field("q1", "work authorization"))
+        self.assertFalse(is_sponsorship_field("first_name", "John"))
 
 
 class TestDedup(unittest.TestCase):
