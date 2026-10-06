@@ -171,6 +171,26 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(m["#io"]["action"], "select")
         self.assertEqual(m["#c"]["action"], "select")
 
+    def test_essay_never_invented(self):
+        # No essay text in facts: skip, never invent.
+        schema = {"fields": [
+            {"key": "#e", "label": "Describe your LLM experience",
+             "type": "textarea"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#e"]["action"], "skip")
+
+    def test_essay_answered_from_facts(self):
+        facts = dict(self.facts)
+        facts["essays"] = {"llm_experience": "I build ML systems."}
+        schema = {"fields": [
+            {"key": "#e", "label": "Describe your LLM experience",
+             "type": "textarea"},
+        ]}
+        m = mapped(map_template(schema, facts, "greenhouse"))
+        self.assertEqual(m["#e"]["action"], "fill")
+        self.assertEqual(m["#e"]["value"], "I build ML systems.")
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):
