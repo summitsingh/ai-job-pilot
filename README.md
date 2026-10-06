@@ -24,7 +24,9 @@ Real verification numbers from production use:
 - **Ashby + Lever:** 82/82 fields verified across 8 real forms, zero model calls
 - **Workable:** 7/9 fill actions verified on a live form (2026-10-04); the 2
   failures were address-autocomplete sub-fields, no Workable-specific code needed
-- **Offline tests:** 18/18 passing, no browser, model, or network required
+- **Offline tests:** 51/51 passing (18 fill-core + 33 queue/tracker/
+  sweep/launcher/config), no browser, model, or network required.
+  Run with `python3 -m unittest test_offline test_operation`
 - **Live submits:** confirmed via `/confirmation` URL plus "Thank you for applying" page text
 
 ## Install
@@ -35,16 +37,23 @@ cd ai-job-pilot
 pip install .
 ```
 
-This provides three console scripts:
+This provides eight console scripts:
 
 | Command | Purpose |
 |---|---|
 | `ai-job-pilot` | Fill a single application (dry-run or submit) |
 | `ai-job-pilot-batch` | Run a queue of posting URLs with dedup and per-application confirmation |
 | `ai-job-pilot-code-gate` | Handle Greenhouse's email verification code gate |
+| `ai-job-pilot-launch` | Open N headful Chrome browsers, one per lane |
+| `ai-job-pilot-lane` | Work a shared queue with cross-lane claims (Greenhouse) |
+| `ai-job-pilot-queue` | Inspect and manage the shared queue (`next`/`claim`/`mark`/`requeue`) |
+| `ai-job-pilot-sweep` | Filter raw postings into vetted queue candidates |
+| `ai-job-pilot-track` | Record applications (JSONL, Google Sheets, Notion) |
 
 Or skip the install and run the scripts directly with Python 3.9+.
-The only dependency is the standard library, no virtualenv needed.
+The core is standard-library only, no virtualenv needed. The optional
+Google Sheets tracker backend needs `google-api-python-client` and
+`google-auth` (`pip install google-api-python-client google-auth`).
 
 ## How it works
 
@@ -229,6 +238,41 @@ guessed, stored, or bypassed. See `AGENTS.md` for the full protocol.
 for Staff+), AI-specific boards, remote-first boards, startup and VC
 portfolio boards, and direct ATS board URL patterns.
 
+## Running the full operation
+
+Beyond single fills, the repo ships the whole pipeline:
+
+```bash
+# 1. open one headful Chrome per lane (interactive; validates ports)
+python3 launch_browsers.py
+
+# 2. vet raw postings into the shared queue
+python3 sweep.py --in raw.json --applied applications.jsonl \
+    --queue queue.json --min-salary 100000
+
+# 3. run a lane per browser (each claims jobs so lanes never collide).
+# Dry-run first: review result.json, then drop --no-submit.
+JOBPILOT_CDP_URL=127.0.0.1:9445 JOBPILOT_LANE="machine-a:9445" \
+    python3 lane_greenhouse.py --workdir /tmp/jobpilot/lane-9445 --no-submit
+```
+
+- `docs/queue.md`: the queue + claims protocol (`job_queue.py`)
+- `docs/sweep.md`: the vetting funnel (`sweep.py`)
+- `docs/tracking.md`: application tracking (`tracker.py`: JSONL,
+  Google Sheets, Notion backends)
+- `docs/machine-setup.md`: visible-browser topology and launch recipes
+- `config.example.json`: every env var in one place (copy to
+  `config.json`, gitignored)
+
+Applications are tracked automatically by the lane; `tracker.py` also
+works standalone:
+
+```bash
+export TRACKER_BACKENDS="jsonl,sheets"
+python3 tracker.py --company Acme --title "Senior Backend Engineer" \
+  --url https://job-boards.greenhouse.io/acme/jobs/123 --backend jsonl,sheets
+```
+
 ## Demo
 
 `demo/demo.cast` is a recorded `--no-submit` run. Play it with:
@@ -252,6 +296,15 @@ asciinema play demo/demo.cast
 | `JOBPILOT_BACKUP_MODELS` | (see model.py) | comma-separated fallback model ids, tried in order |
 | `JOBPILOT_FACTS` | `./facts.json` | path to your facts file |
 | `JOBPILOT_RESUME` | (from facts.json) | override path to your resume PDF |
+| `JOBPILOT_QUEUE` | `./queue.json` | shared job queue for lanes |
+| `JOBPILOT_CLAIMS` | `./claims.jsonl` | cross-lane claims log |
+| `JOBPILOT_LANE` | `lane-1` | this lane's name (e.g. machine-a:9445) |
+| `TRACKER_BACKENDS` | `jsonl` | comma-separated: jsonl, sheets, notion |
+| `TRACKER_SHEET_ID` | (unset) | Google Sheet id for the sheets backend |
+| `TRACKER_SHEET_TAB` | `Applications` | sheet tab name |
+| `GOOGLE_APPLICATION_CREDENTIALS` | (unset) | service-account JSON path |
+| `TRACKER_NOTION_TOKEN` | (unset) | Notion integration token |
+| `TRACKER_NOTION_DB` | (unset) | Notion database id |
 
 Legacy `ATS_*` names for these variables are also honored.
 
@@ -292,7 +345,16 @@ private; it is gitignored by default.
 - **No CAPTCHA solving.** Detection stops the run; the operator is notified.
 - **No account-gated ATS automation** without explicit setup (iCIMS, Workday,
   Taleo, and similar multi-page or account-walled flows are out of scope).
-- **Human approval** before every submit (`--no-submit` dry-run first).
+- **Human approval** before every submit in single-run mode
+  (`--no-submit` dry-run first). Lane mode (`lane_greenhouse.py`)
+  submits unattended by design: run it with `--no-submit` first and
+  review `result.json` before letting it submit. Either way, the lane
+  blocks on consent fields (see below) instead of answering them.
+- **Consent fields are never auto-answered.** Arbitration agreements,
+  certifications/attestations, background-check and drug-test
+  authorizations, and assessments always stop the run for explicit
+  human approval per application. `--no-submit` review does not
+  substitute for this.
 - **Human-in-the-loop** for Greenhouse email codes.
 - Some employers are blocklisted from automation in the default config;
   see `modal_common.py`.
@@ -317,10 +379,29 @@ private; it is gitignored by default.
   driver, no venv needed on the browser host)
 - `model.py` - model client with fallback chain
 - `indeed_dump.py`, `indeed_fill.py` - Indeed application lane
-- `test_offline.py` - 18 offline unit tests (no browser/model needed)
+- `launch_browsers.py` - headful Chrome launcher, one browser per lane
+  (`ai-job-pilot-launch`)
+- `lane_greenhouse.py` - queue-driven Greenhouse lane: claim, fill,
+  submit, verify, track (`ai-job-pilot-lane`)
+- `job_queue.py` - shared queue with cross-lane claims
+  (`ai-job-pilot-queue`); protocol in `docs/queue.md`
+- `tracker.py` - application tracking: JSONL, Google Sheets, Notion
+  (`ai-job-pilot-track`); setup in `docs/tracking.md`
+- `sweep.py` - posting vetting funnel: title/location/salary/
+  sponsorship filters, dedup, queue writing (`ai-job-pilot-sweep`);
+  protocol in `docs/sweep.md`
+- `config.py`, `config.example.json` - config file loading (env vars
+  override `config.json`, which overrides built-in defaults)
+- `test_offline.py` - 18 offline unit tests for the fill core
+- `test_operation.py` - 33 offline unit tests for queue, tracker,
+  sweep, launcher, and config (no browser/model needed)
 - `test_*.py` - live-browser integration tests (`--no-submit` only)
 - `docs/ats-notes.md` - Greenhouse, Ashby, Lever, and Workable quirks
   learned in production
+- `docs/greenhouse-quirks.md` - Greenhouse form quirks: react-selects,
+  location autocomplete, cover-letter requirements, code gate
+- `docs/machine-setup.md` - visible-browser topology and per-platform
+  launch recipes
 - `docs/platforms.md` - 50+ job discovery platforms (boards, APIs, VC portfolios)
 - `docs/agent-setup.md` - per-platform agent setup (Claude Code, Codex,
   ChatGPT, Muse, Hermes, OpenClaw)

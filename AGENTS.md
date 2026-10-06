@@ -1,4 +1,4 @@
-# AGENTS.md — instructions for AI agents running jobpilot
+# AGENTS.md: instructions for AI agents running jobpilot
 
 This repo is a deterministic autofill harness for ATS job application forms
 (Greenhouse, Ashby, Lever). An agent's job: take a posting URL and applicant
@@ -111,6 +111,12 @@ empty code boxes:
    Respect it.
 7. One application per run. Do not parallelize submissions to the same
    employer.
+8. Consent fields are never auto-answered: arbitration agreements,
+   certifications/attestations, background-check and drug-test
+   authorizations, and assessments always stop the run for explicit
+   human approval per application. The lane enforces this with an
+   independent pre-fill scan (`consent_blockers` in
+   `lane_greenhouse.py`), separate from whatever the mapper decided.
 
 ## Failure modes
 
@@ -124,21 +130,31 @@ empty code boxes:
 
 ## Layout
 
-- `ats_fill.py` — orchestrator (dump -> map -> fill -> verify -> submit)
-- `extract.py`, `schema_dump.py` — form introspection to JSON
-- `map.py` — mapping orchestrator: deterministic `hard_patterns` /
+- `ats_fill.py`: orchestrator (dump -> map -> fill -> verify -> submit)
+- `extract.py`, `schema_dump.py`: form introspection to JSON
+- `map.py`: mapping orchestrator: deterministic `hard_patterns` /
   `templates` first, at most one strict-JSON model call, only for fields
   left unmapped or low-confidence
-- `hard_patterns.py`, `templates.py` — deterministic screening answers;
+- `hard_patterns.py`, `templates.py`: deterministic screening answers;
   no model calls inside these modules; fields with no truthful answer
   map to `skip` (safety invariant 1)
-- `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py` — fill
+- `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py`: fill
   primitives over CDP
-- `ashby_graphql.py` — Ashby GraphQL mutation-template capture (fetch/XHR
+- `ashby_graphql.py`: Ashby GraphQL mutation-template capture (fetch/XHR
   hooks + trigger snippet); direct-mutation filling for Ashby forms
-- `verify.py`, `submit_only.py` — fill verification and submission
-- `cdp_driver.py`, `cdp_direct.py`, `common.py` — transport (stdlib-only
+- `verify.py`, `submit_only.py`: fill verification and submission
+- `cdp_driver.py`, `cdp_direct.py`, `common.py`: transport (stdlib-only
   driver, no venv needed on the browser host)
-- `model.py` — model client with fallback chain
-- `indeed_dump.py`, `indeed_fill.py` — Indeed lane
-- `facts.example.json` — template for the applicant's private facts
+- `model.py`: model client with fallback chain
+- `indeed_dump.py`, `indeed_fill.py`: Indeed lane
+- `launch_browsers.py`: headful Chrome launcher, one browser per lane
+- `lane_greenhouse.py`: queue-driven Greenhouse lane (claim -> fill ->
+  submit -> verify -> track)
+- `job_queue.py`: shared queue with cross-lane claims
+- `config.py`: config.json loading (env vars override file)
+- `tracker.py`: application tracking (JSONL, Google Sheets, Notion)
+- `sweep.py`: posting vetting funnel (title/location/salary/sponsorship
+  filters, dedup, queue writing)
+- `config.example.json`: env var template (copy to config.json)
+- `test_operation.py`: offline tests for queue/tracker/sweep/launcher
+- `facts.example.json`: template for the applicant's private facts
