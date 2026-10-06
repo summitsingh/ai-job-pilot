@@ -1,1 +1,56 @@
-{"ai_agent_disclosure":"No","city":"Austin","country":"United States","current_employer":"Acme Corp","current_employer_dates":"Jan 2020 to present","current_title":"Senior Software Engineer","disability":"no disability","education":[{"degree":"BS Computer Science","end_year":"2019","school":"State University"},{"degree":"MS Computer Science","end_year":"in progress","school":"Tech Institute"}],"email":"alex.carter@example.com","ethnicity":"not Hispanic or Latino","first_name":"Alex","full_name":"Alex Carter","github":"https://github.com/alexcarter","job_source":"LinkedIn","last_name":"Carter","linkedin":"https://www.linkedin.com/in/alexcarter","location":"Austin, Texas, United States","phone":"5551234567","previous_employer":"Startup Inc","previous_employer_dates":"Jun 2017 to Dec 2019","previous_title":"Software Engineer","previously_employed_here":"No","pronouns":"I prefer not to say","referral":"","resume_path":"/tmp/resume.pdf","salary_expectation":"$150K-$180K base","salary_midpoint":165000,"state":"Texas","veteran":"not a veteran","website":"https://alexcarter.dev","willing_hybrid":"Yes","willing_in_office":"Yes","willing_relocate":"Yes","willing_start_date_flexible":"Yes","willing_travel":"Yes","work_authorization":"US citizen","years_experience":"8+"}
+{
+ "ai_agent_disclosure": "No",
+ "city": "Austin",
+ "country": "United States",
+ "current_employer": "Acme Corp",
+ "current_employer_dates": "Jan 2020 to present",
+ "current_title": "Senior Software Engineer",
+ "disability": "no disability",
+ "education": [
+  {
+   "degree": "BS Computer Science",
+   "end_year": "2019",
+   "school": "State University",
+   "start_month": "September",
+   "start_year": "2015",
+   "end_month": "June"
+  },
+  {
+   "degree": "MS Computer Science",
+   "end_year": "in progress",
+   "school": "Tech Institute",
+   "start_month": "August",
+   "start_year": "2024",
+   "end_month": ""
+  }
+ ],
+ "email": "alex.carter@example.com",
+ "ethnicity": "not Hispanic or Latino",
+ "first_name": "Alex",
+ "full_name": "Alex Carter",
+ "github": "https://github.com/alexcarter",
+ "job_source": "LinkedIn",
+ "last_name": "Carter",
+ "linkedin": "https://www.linkedin.com/in/alexcarter",
+ "location": "Austin, Texas, United States",
+ "phone": "5551234567",
+ "previous_employer": "Startup Inc",
+ "previous_employer_dates": "Jun 2017 to Dec 2019",
+ "previous_title": "Software Engineer",
+ "previously_employed_here": "No",
+ "pronouns": "I prefer not to say",
+ "referral": "",
+ "resume_path": "/tmp/resume.pdf",
+ "salary_expectation": "$150K-$180K base",
+ "salary_midpoint": 165000,
+ "state": "Texas",
+ "veteran": "not a veteran",
+ "website": "https://alexcarter.dev",
+ "willing_hybrid": "Yes",
+ "willing_in_office": "Yes",
+ "willing_relocate": "Yes",
+ "willing_start_date_flexible": "Yes",
+ "willing_travel": "Yes",
+ "work_authorization": "US citizen",
+ "years_experience": "8+"
+}

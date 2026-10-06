@@ -482,6 +482,47 @@ def r_privacy_ack_check(f, facts, ats):
             "privacy-ack-check")
 
 
+def _edu_entry(facts, current=False):
+    """Pick the education entry: current/in-progress or the most recent."""
+    edu = facts.get("education") or []
+    if current:
+        for e in edu:
+            if "progress" in str(e.get("end_year", "")).lower():
+                return e
+    return edu[0] if edu else {}
+
+
+def r_edu_month(f, facts, ats, which):
+    # Education start/end month from facts education entries.
+    e = _edu_entry(facts)
+    mon = e.get("start_month" if which == "start" else "end_month", "")
+    if not mon:
+        return None
+    return ("opt", [mon, mon[:3]], "edu-date")
+
+
+def r_edu_year(f, facts, ats, which):
+    e = _edu_entry(facts)
+    yr = e.get("start_year" if which == "start" else "end_year", "")
+    if not yr or "progress" in str(yr).lower():
+        return None
+    return ("do", "fill", str(yr), "edu-date")
+
+
+def r_discipline(f, facts, ats):
+    # Field of study / discipline from facts education entries.
+    majors = []
+    for e in facts.get("education") or []:
+        deg = str(e.get("degree", ""))
+        for part in re.split(r"[,&/]", deg):
+            part = part.strip()
+            if part and part not in majors:
+                majors.append(part)
+    if not majors:
+        return None
+    return ("opt", majors + ["Other"], "discipline")
+
+
 def r_military_no(f, facts, ats):
     # Not a veteran; not military spouse; not National Guard/Reserves.
     return ("opt", ["No", "I am not a veteran", "not a veteran"],
@@ -563,6 +604,20 @@ PATTERNS = [
      r_major, {"text", "select"}),
     ("gradyear", re.compile(r"graduation|end year|class of|year.*graduat",
                             re.I), r_gradyear, {"text", "select", "number"}),
+    ("discipline", re.compile(r"\bdiscipline\b|field of study", re.I),
+     r_discipline, {"select", "custom-select"}),
+    ("edu-start-month", re.compile(r"start.*month|month.*start", re.I),
+     lambda f, facts, ats: r_edu_month(f, facts, ats, "start"),
+     {"select", "custom-select"}),
+    ("edu-end-month", re.compile(r"end.*month|month.*end", re.I),
+     lambda f, facts, ats: r_edu_month(f, facts, ats, "end"),
+     {"select", "custom-select"}),
+    ("edu-start-year", re.compile(r"start.*year|year.*start", re.I),
+     lambda f, facts, ats: r_edu_year(f, facts, ats, "start"),
+     {"text", "number"}),
+    ("edu-end-year", re.compile(r"end.*year|year.*end", re.I),
+     lambda f, facts, ats: r_edu_year(f, facts, ats, "end"),
+     {"text", "number"}),
     ("gpa", re.compile(r"\bgpa\b|grade point", re.I), r_skip, None),
     # account creation: never invent or store passwords
     ("password", re.compile(r"password", re.I), r_password_skip, None),
