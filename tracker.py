@@ -29,6 +29,9 @@ Secrets come from env vars, never from code or the record:
   GOOGLE_APPLICATION_CREDENTIALS              (path to service-account JSON)
   TRACKER_NOTION_TOKEN, TRACKER_NOTION_DB    (notion backend)
 
+TRACKER_SHEET_ID and TRACKER_NOTION_DB accept either a bare ID or the
+full URL of the sheet / database (see parse_sheets_id, parse_notion_db_id).
+
 Setup for Sheets and Notion is documented in docs/tracking.md.
 
 Usage:
@@ -41,7 +44,9 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -67,6 +72,83 @@ def build_record(**kw):
     if not rec["url"]:
         raise ValueError("record requires a url")
     return rec
+
+
+_SHEETS_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_HEX32_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+_NOTION_TAIL_RE = re.compile(
+    r"(?:^|-)([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$")
+
+
+def _url_parts(value, what):
+    """Split a URL value into (host, path); ValueError if it is not one."""
+    try:
+        p = urllib.parse.urlsplit(value if "://" in value
+                                  else "https://" + value)
+        host = (p.hostname or "").lower()
+    except ValueError:
+        raise ValueError("%s is not a valid URL: %r" % (what, value))
+    if not host:
+        raise ValueError("%s is not a valid URL: %r" % (what, value))
+    return host, p.path
+
+
+def parse_sheets_id(value):
+    """Return the spreadsheet ID from a bare ID or a Google Sheets URL.
+
+    A string with no "/" and no "." is a bare ID. Otherwise it must be a
+    docs.google.com URL of the form .../spreadsheets/d/<ID>/... Anything
+    else raises ValueError (fail closed: never guess an ID).
+    """
+    v = (value or "").strip()
+    if not v:
+        raise ValueError("spreadsheet ID or URL is empty")
+    if "/" not in v and "." not in v:
+        if not _SHEETS_ID_RE.match(v):
+            raise ValueError("invalid spreadsheet ID: %r" % v)
+        return v
+    host, path = _url_parts(v, "spreadsheet URL")
+    if host != "docs.google.com":
+        raise ValueError("not a Google Sheets URL (host %r): %r"
+                         % (host, v))
+    m = re.search(r"/spreadsheets/(?:u/\d+/)?d/([A-Za-z0-9_-]+)(?:/|$)",
+                  path)
+    if not m:
+        raise ValueError("no /spreadsheets/d/<ID> segment in URL: %r" % v)
+    return m.group(1)
+
+
+def parse_notion_db_id(value):
+    """Return the hyphenated 32-hex Notion database ID.
+
+    Accepts a bare ID (hyphenated or not) or a notion.so / notion.site
+    URL whose last path segment ends in the ID. The query string is
+    ignored on purpose: ?v=<id> is the VIEW id, not the database id.
+    Anything else raises ValueError.
+    """
+    v = (value or "").strip()
+    if not v:
+        raise ValueError("Notion database ID or URL is empty")
+    if "/" not in v and "." not in v:
+        raw = v.replace("-", "")
+        if not _HEX32_RE.match(raw):
+            raise ValueError("invalid Notion database ID: %r" % v)
+        return _hyphenate(raw)
+    host, path = _url_parts(v, "Notion URL")
+    if not (host in ("notion.so", "notion.site")
+            or host.endswith((".notion.so", ".notion.site"))):
+        raise ValueError("not a Notion URL (host %r): %r" % (host, v))
+    segs = [s for s in path.split("/") if s]
+    m = _NOTION_TAIL_RE.search(segs[-1]) if segs else None
+    if not m:
+        raise ValueError("no 32-hex database ID at end of URL path: %r" % v)
+    return _hyphenate(m.group(1).replace("-", ""))
+
+
+def _hyphenate(raw32):
+    r = raw32.lower()
+    return "%s-%s-%s-%s-%s" % (r[:8], r[8:12], r[12:16], r[16:20], r[20:])
 
 
 class JsonlTracker:
@@ -103,6 +185,7 @@ class SheetsTracker:
             "GOOGLE_APPLICATION_CREDENTIALS", ""))
         if not self.spreadsheet_id:
             raise ValueError("TRACKER_SHEET_ID is not set")
+        self.spreadsheet_id = parse_sheets_id(self.spreadsheet_id)
         if not self.credentials_path:
             raise ValueError("GOOGLE_APPLICATION_CREDENTIALS is not set")
 
@@ -146,6 +229,7 @@ class NotionTracker:
             raise ValueError("TRACKER_NOTION_TOKEN is not set")
         if not self.database_id:
             raise ValueError("TRACKER_NOTION_DB is not set")
+        self.database_id = parse_notion_db_id(self.database_id)
 
     @staticmethod
     def _clip(value, limit=2000):

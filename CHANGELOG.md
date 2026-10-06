@@ -6,6 +6,46 @@ All notable changes to jobpilot are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Human review batch C: owner-only queue `heartbeat`, the offline-testable
+  `codegate.py` coordinator with CLI notifier and Telegram extension stub,
+  and Greenhouse lane `--dry-run` with an answer table and `dryrun.png`.
+- `setup_wizard.py` (`ai-job-pilot-setup`): optional browser launch, safe
+  queue initialization, tracker credential exports, and facts validation.
+  Non-secret settings only go to config.json; env vars win.
+- `docs/setup.md` and `test_human.py`: 22 offline tests for Batch C.
+- Tracking batch B.
+  - `tracker.py`: `parse_sheets_id` / `parse_notion_db_id` let
+    `TRACKER_SHEET_ID` and `TRACKER_NOTION_DB` take a full URL or a bare
+    ID. Unparseable values raise `ValueError` (fail closed).
+  - `scoreboard.py` (`ai-job-pilot-scoreboard`): `record` / `show`
+    per-lane day and week totals over a locked JSON file
+    (`JOBPILOT_SCOREBOARD`).
+  - `analytics.py` (`ai-job-pilot-analytics`): funnel conversion rates,
+    per-company table, median time-to-response, `--json` output; unknown
+    statuses are reported as `other`.
+  - `sweep.py`: `near_duplicate` / `find_duplicates` and a fuzzy dedup
+    step in `filter_postings`. Reposts of the same role on another board
+    are withheld from the queue and listed in `stats["fuzzy_dup_review"]`
+    for human review; they are never auto-merged into the applied log.
+  - `test_tracking.py`: 28 offline tests for the above.
+- Reliability batch A.
+  - `submit_watchdog.py`: detects a swallowed submit click (URL unchanged,
+    no confirmation, no error) and walks a recovery ladder: wait+recheck,
+    normal re-click, JS click, then give up as blocked with evidence.
+    Re-clicks only while the page is untouched, so a slow real submit is
+    never doubled; the Greenhouse code gate stays human-in-the-loop.
+    Tunable with `JOBPILOT_SUBMIT_WAIT_S`, `JOBPILOT_SUBMIT_RECHECKS`,
+    `JOBPILOT_SUBMIT_POLL_S`. Wired into `lane_greenhouse.py`.
+  - `location_check.py`: post-fill location verifier. Requires the city
+    as a whole word AND the state token, so "Austintown, Ohio" no longer
+    passes for "Austin, TX". Fails closed (empty value, no metros). The
+    lane returns `blocked` for review instead of submitting. Allowlist via
+    `JOBPILOT_TARGET_METROS`.
+  - `model.budgeted_chat`: `chat()` with a `max_tokens` ceiling
+    (`JOBPILOT_MODEL_MAX_TOKENS`), a hard wall-clock budget
+    (`JOBPILOT_MODEL_WALL_TIMEOUT_S`), and per-call JSONL telemetry
+    (`JOBPILOT_MODEL_TELEMETRY`). `chat()` itself is unchanged.
+  - `test_reliability.py`: 24 offline tests for the above.
 - Operation layer: run the whole pipeline, not just single fills.
   - `launch_browsers.py` (`ai-job-pilot-launch`): interactive headful
     Chrome launcher. Asks how many browsers to open (recommended 2),
