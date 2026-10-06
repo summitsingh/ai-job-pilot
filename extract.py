@@ -61,7 +61,7 @@ def extract(text, url):
     if not ok:
         raise RuntimeError(f"model unreachable: {info}")
     user = f"POSTING URL: {url}\n\nPOSTING TEXT (truncated at 12000 chars):\n{text[:12000]}"
-    return model.chat(SYSTEM, user, "extract", SCHEMA,
+    return model.budgeted_chat(SYSTEM, user, "extract", SCHEMA,
                       max_tokens=1500, temperature=0.0)
 
 

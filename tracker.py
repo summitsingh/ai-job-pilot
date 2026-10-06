@@ -39,6 +39,12 @@ Usage:
       --url https://job-boards.greenhouse.io/acme/jobs/123 \
       --backend jsonl
   python3 tracker.py --from-json result.json --backend jsonl,sheets,notion
+  python3 tracker.py update --url https://example.com/job --status interview \
+      --response-date 2026-01-20 --jsonl-path applications.jsonl
+
+The update command edits the latest matching local JSONL record by URL or
+--id. It preserves the first response_date and furthest_stage; remote
+backend rows are not updated by this local command.
 """
 import argparse
 import datetime
@@ -46,6 +52,10 @@ import json
 import os
 import re
 import sys
+import tempfile
+import uuid
+
+from job_queue import Store, norm_url
 import urllib.parse
 import urllib.request
 
@@ -53,10 +63,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 FIELDS = ["date", "company", "title", "location", "salary", "source", "ats",
           "url", "status", "confirmation", "sponsorship", "eeo",
-          "resume", "lane", "notes"]
+          "resume", "lane", "notes", "id", "response_date", "furthest_stage"]
 
 
-VALID_STATUSES = {"Applied", "Skipped", "Blocked", "Dead", "Ready"}
+VALID_STATUSES = {"Applied", "Responded", "Screening", "Interview", "Offer",
+                  "Rejected", "Withdrawn", "Skipped", "Blocked", "Dead", "Ready"}
+STAGE_RANK = {"Applied": 0, "Responded": 1, "Screening": 2,
+              "Interview": 3, "Offer": 4}
+
+
+def furthest_stage(status, previous=""):
+    """Preserve known progress; a rejection is itself a response."""
+    floor = "Responded" if status == "Rejected" else "Applied"
+    stage = status if status in STAGE_RANK else floor
+    previous = str(previous or "").strip().title()
+    if previous in STAGE_RANK and STAGE_RANK[previous] > STAGE_RANK[stage]:
+        stage = previous
+    return stage if status not in {"Skipped", "Blocked", "Dead", "Ready"} else ""
+
 
 
 def build_record(**kw):
@@ -66,15 +90,18 @@ def build_record(**kw):
     for k, v in kw.items():
         if k in rec:
             rec[k] = v if v is not None else ""
+    rec["status"] = str(rec["status"]).strip().title()
     if rec["status"] not in VALID_STATUSES:
         raise ValueError("status must be one of %s, got %r"
                          % (sorted(VALID_STATUSES), rec["status"]))
     if not rec["url"]:
         raise ValueError("record requires a url")
+    rec["id"] = rec["id"] or uuid.uuid4().hex
+    rec["furthest_stage"] = furthest_stage(rec["status"], rec["furthest_stage"])
     return rec
 
 
-_SHEETS_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SHEETS_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,}$")
 _HEX32_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 _NOTION_TAIL_RE = re.compile(
     r"(?:^|-)([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
@@ -89,6 +116,8 @@ def _url_parts(value, what):
         host = (p.hostname or "").lower()
     except ValueError:
         raise ValueError("%s is not a valid URL: %r" % (what, value))
+    if p.scheme.lower() != "https":
+        raise ValueError("%s requires an HTTPS URL: %r" % (what, value))
     if not host:
         raise ValueError("%s is not a valid URL: %r" % (what, value))
     return host, p.path
@@ -112,7 +141,9 @@ def parse_sheets_id(value):
     if host != "docs.google.com":
         raise ValueError("not a Google Sheets URL (host %r): %r"
                          % (host, v))
-    m = re.search(r"/spreadsheets/(?:u/\d+/)?d/([A-Za-z0-9_-]+)(?:/|$)",
+    if re.search(r"/spreadsheets/(?:u/\d+/)?d/e(?:/|$)", path):
+        raise ValueError("published Sheets URL does not contain a spreadsheet ID")
+    m = re.search(r"/spreadsheets/(?:u/\d+/)?d/([A-Za-z0-9_-]{20,})(?:/|$)",
                   path)
     if not m:
         raise ValueError("no /spreadsheets/d/<ID> segment in URL: %r" % v)
@@ -132,7 +163,8 @@ def parse_notion_db_id(value):
         raise ValueError("Notion database ID or URL is empty")
     if "/" not in v and "." not in v:
         raw = v.replace("-", "")
-        if not _HEX32_RE.match(raw):
+        canonical = _hyphenate(raw) if _HEX32_RE.fullmatch(raw) else ""
+        if not canonical or v.lower() not in (raw.lower(), canonical):
             raise ValueError("invalid Notion database ID: %r" % v)
         return _hyphenate(raw)
     host, path = _url_parts(v, "Notion URL")
@@ -156,6 +188,10 @@ class JsonlTracker:
         self.path = os.path.expanduser(path)
 
     def append(self, record):
+        with Store(self.path):
+            return self._append(record)
+
+    def _append(self, record):
         d = os.path.dirname(os.path.abspath(self.path))
         os.makedirs(d, exist_ok=True)
         fd = os.open(self.path, os.O_CREAT | os.O_WRONLY | os.O_APPEND,
@@ -170,6 +206,50 @@ class JsonlTracker:
             f.flush()
             os.fsync(f.fileno())
         return {"backend": "jsonl", "path": self.path}
+
+
+    def update(self, status, *, url=None, record_id=None, response_date=None):
+        """Update the latest matching local record atomically, preserving history."""
+        if bool(url) == bool(record_id):
+            raise ValueError("provide exactly one of url or record_id")
+        with Store(self.path):
+            with open(self.path) as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            matches = [i for i, r in enumerate(rows) if
+                       (r.get("id") == record_id if record_id else
+                        norm_url(r.get("url", "")) == norm_url(url))]
+            if not matches:
+                raise ValueError("no matching tracker record")
+            index = matches[-1]
+            old = rows[index]
+            fields = dict(old, status=status,
+                          furthest_stage=furthest_stage(
+                              str(old.get("status", "Applied")).title(),
+                              old.get("furthest_stage", "")))
+            rec = build_record(**fields)
+            if rec["status"] in {"Responded", "Screening", "Interview", "Offer", "Rejected"}:
+                if not rec["response_date"]:
+                    rec["response_date"] = response_date or datetime.date.today().isoformat()
+            elif response_date and not rec["response_date"]:
+                rec["response_date"] = response_date
+            if rec["response_date"]:
+                response = datetime.date.fromisoformat(rec["response_date"])
+                applied = datetime.date.fromisoformat(rec["date"])
+                if response < applied:
+                    raise ValueError("response_date must not precede application date")
+            rows[index] = dict(old, **rec)
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(self.path)))
+            try:
+                with os.fdopen(fd, "w") as f:
+                    for row in rows:
+                        f.write(json.dumps(row) + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, self.path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+            return rec
 
 
 class SheetsTracker:
@@ -267,6 +347,9 @@ class NotionTracker:
         props.update(self._prop("Resume", record.get("resume", "")))
         props.update(self._prop("Lane", record.get("lane", "")))
         props.update(self._prop("Notes", record.get("notes", "")))
+        props.update(self._prop("ID", record.get("id", "")))
+        props.update(self._prop("Response Date", record.get("response_date", ""), "date"))
+        props.update(self._prop("Furthest Stage", record.get("furthest_stage", "")))
         body = json.dumps({
             "parent": {"database_id": self.database_id},
             "properties": props,
@@ -312,6 +395,22 @@ def track(record, backends=("jsonl",), **kw):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "update":
+        ap = argparse.ArgumentParser(description="Update a local tracker record's status")
+        ap.add_argument("--jsonl-path", default="applications.jsonl")
+        selector = ap.add_mutually_exclusive_group(required=True)
+        selector.add_argument("--url")
+        selector.add_argument("--id", dest="record_id")
+        ap.add_argument("--status", required=True)
+        ap.add_argument("--response-date")
+        a = ap.parse_args(sys.argv[2:])
+        try:
+            rec = JsonlTracker(a.jsonl_path).update(a.status, url=a.url,
+                record_id=a.record_id, response_date=a.response_date)
+        except (ValueError, OSError) as e:
+            ap.error(str(e))
+        print(json.dumps({"record": rec}, indent=1))
+        return
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--backend", default="jsonl",
                     help="comma-separated: jsonl,sheets,notion")

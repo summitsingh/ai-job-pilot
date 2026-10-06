@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
-"""Coordinate a human-supplied Greenhouse verification code.
+"""Human-input coordinator library used by lane_greenhouse.py.
 
 Usage:
   coordinate(CliNotifier(), 300, on_code, on_timeout)
   on_timeout = functools.partial(requeue_on_timeout, queue_path, claims_path, url)
+
+code_gate.py is the standalone browser CLI for a parked gate. This module
+owns the bounded human wait and callbacks, not browser mechanics.
 
 This module never reads email or the inbox and never fetches codes.
 The human supplies the code. Browser callbacks reuse code_gate.py's gate
 mechanics; this coordinator does not replace them or bypass consent.
 """
 import os
+import re
 import select
 import sys
 import time
 
 
+NO_INPUT = object()
+MAX_ATTEMPTS = 3
+
+
 class Notifier:
-    """Transport interface: notify once, then return a code or None on timeout."""
+    """Transport: code, None on timeout, or NO_INPUT if human input is unavailable."""
 
     def notify(self, message):
         raise NotImplementedError
@@ -46,14 +54,14 @@ class CliNotifier(Notifier):
                 data += chunk
                 if b"\n" in data or not chunk:
                     if not data:
-                        return None
+                        return NO_INPUT
                     return data.split(b"\n", 1)[0].decode("utf-8")
                 if len(data) >= 4096:
                     return ""  # Oversized input is invalid, never retried.
                 if time.monotonic() >= deadline:
                     return None
-        except (OSError, ValueError, TypeError):
-            return None
+        except (OSError, ValueError, TypeError, UnicodeDecodeError):
+            return NO_INPUT
 
 
 class TelegramNotifier(Notifier):
@@ -65,21 +73,34 @@ class TelegramNotifier(Notifier):
         raise NotImplementedError("Telegram notifier is a future extension")
 
 
-def coordinate(notifier, timeout_s, on_code, on_timeout):
-    """Wait once for a human code, validate, and invoke the matching callback."""
-    # Never read email or the inbox: only the human provides this code.
+def coordinate(notifier, timeout_s, on_code, on_timeout, *, attempts=1,
+               max_attempts=MAX_ATTEMPTS):
+    """Wait once. A missing human never retries; callback failure is explicit.
+
+    Callers persist attempts before entering this function. None means a
+    genuine wait timeout; NO_INPUT means stdin is unavailable or undecodable.
+    """
+    if attempts > max_attempts:
+        return {"status": "blocked", "reason": "code-gate attempt cap reached"}
     notifier.notify("Enter the 8-character verification code from your email:")
     code = notifier.wait_for_code(timeout_s)
+    if code is NO_INPUT:
+        return {"status": "no_input"}
     if code is None:
-        on_timeout()
-        return {"status": "timeout"}
-    if not isinstance(code, str):
+        if attempts >= max_attempts:
+            return {"status": "blocked", "reason": "code-gate attempt cap reached"}
+        retry = on_timeout()
+        if retry is False:
+            return {"status": "blocked", "requeued": False}
+        if retry is None:  # Compatibility for notification-only callbacks.
+            return {"status": "timeout"}
+        return {"status": "timeout", "requeued": bool(retry)}
+    if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9]{8}", code.strip()):
         return {"status": "invalid-code"}
-    code = code.strip()
-    if len(code) != 8 or any(c.isspace() for c in code):
-        # Invalid input is terminal for this wait; never retry or guess.
-        return {"status": "invalid-code"}
-    on_code(code)
+    outcome = on_code(code.strip())
+    if isinstance(outcome, dict):
+        return {"status": "confirmed" if outcome.get("confirmed") else "failed",
+                "result": outcome}
     return {"status": "code-entered"}
 
 

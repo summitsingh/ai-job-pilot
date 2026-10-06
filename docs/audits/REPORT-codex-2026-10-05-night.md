@@ -1,4 +1,4 @@
-# Codex audit report — 2026-10-05 night
+# Codex audit report - 2026-10-05 night
 
 **Scope:** `fill.py` `do_select` react-select detection fix (CDP RemoteObject
 dict vs string comparison), plus consistency check across the harness.
@@ -10,7 +10,7 @@ dict vs string comparison), plus consistency check across the harness.
 Codex traced the CDP return paths through the local harness drivers,
 ran the normalization logic against 17 in-memory cases (bare strings,
 RemoteObject dicts, numbers, booleans, null, lists, missing `value`,
-nested dicts, bytes — no crashes, only string `"rs"` selects the React
+nested dicts, bytes - no crashes, only string `"rs"` selects the React
 helper), and grepped the harness for similar comparisons.
 
 ## Findings

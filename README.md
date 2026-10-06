@@ -24,10 +24,10 @@ Real verification numbers from production use:
 - **Ashby + Lever:** 82/82 fields verified across 8 real forms, zero model calls
 - **Workable:** 7/9 fill actions verified on a live form (2026-10-04); the 2
   failures were address-autocomplete sub-fields, no Workable-specific code needed
-- **Offline tests:** 125 tests (18 fill-core + 33 queue/tracker/
-  sweep/launcher/config + 24 reliability + 28 tracking + 22 human/setup), no browser, model,
-  or network required. Run with
-  `python3 -m unittest test_offline test_operation test_reliability test_tracking test_human`
+- **Offline tests:** 218 tests (18 fill-core, 54 operation, 50 reliability,
+  48 tracking, 48 human/setup). Run
+  `python3 -m unittest test_operation test_offline test_reliability test_tracking test_human`.
+  No browser, model server, or network is required.
 - **Live submits:** confirmed via `/confirmation` URL plus "Thank you for applying" page text
 
 ## Install
@@ -76,12 +76,12 @@ and extracts every form field as JSON: label text, input type, options
 for selects and radios, required flags, and autocomplete attributes.
 This is pure DOM introspection, zero tokens spent.
 
-### 2. Map (one model call)
+### 2. Map (deterministic first, at most one backup model call)
 
-`map.py` sends the field schema and your `facts.json` to a local model
-with a strict JSON schema constraint. The model returns a field-to-answer
-mapping. Fields with no safe answer map to `skip`, never to a guess.
-This is the only LLM call in the entire pipeline.
+`map.py` runs `hard_patterns.py` and `templates.py` first. Only unmapped or
+low-confidence fields reach one strict-JSON backup call. Fields with no truthful
+answer map to `skip`. Map, optional posting extraction in `extract.py`, and
+model classification in `verify.py` use the bounded model wrapper.
 
 Supported model servers: any OpenAI-compatible endpoint (LM Studio
 default at `http://127.0.0.1:1234`) or Ollama native API. Configure
@@ -104,9 +104,10 @@ uploads. After filling, it reads every field back from the DOM and diffs
 against the expected values. Any mismatch is reported, not silently
 accepted.
 
-### 5. Verify and submit (no model)
+### 5. Verify and submit
 
-`verify.py` confirms the fill state. `submit_only.py` clicks submit.
+`verify.py` combines confirmation rules with bounded model classification.
+`submit_only.py` clicks submit; the Greenhouse lane uses rule-based outcome checks.
 For Greenhouse, `code_gate.py` handles the email verification gate
 (see below). Confirmation is verified by URL (`/confirmation`) and
 page text ("Thank you for applying") before the run is logged as
@@ -306,7 +307,7 @@ asciinema play demo/demo.cast
 | `JOBPILOT_RESUME` | (from facts.json) | override path to your resume PDF |
 | `JOBPILOT_QUEUE` | `./queue.json` | shared job queue for lanes |
 | `JOBPILOT_CLAIMS` | `./claims.jsonl` | cross-lane claims log |
-| `JOBPILOT_LANE` | `lane-1` | this lane's name (e.g. machine-a:9445) |
+| `JOBPILOT_LANE` | `lane-1@hostname#pid` | this lane's name (e.g. machine-a:9445) |
 | `TRACKER_BACKENDS` | `jsonl` | comma-separated: jsonl, sheets, notion |
 | `TRACKER_SHEET_ID` | (unset) | Google Sheet id for the sheets backend |
 | `TRACKER_SHEET_TAB` | `Applications` | sheet tab name |
@@ -373,11 +374,14 @@ private; it is gitignored by default.
 - `ats_fill.py` - orchestrator: dump -> map -> fill -> verify -> submit
 - `batch_apply.py` - queue runner with `--dedup`, `--resume-map`,
   per-application confirm prompt, and JSONL logging
-- `code_gate.py` - Greenhouse email verification gate handler
+- `code_gate.py` - standalone browser CLI for a parked verification gate
+- `codegate.py` - bounded human-input coordinator used by the Greenhouse lane
+- `setup_wizard.py` - setup CLI; see [setup instructions](docs/setup.md)
+- `terminal_output.py` - strip terminal controls from printed values
 - `examples/` - sample `queue.txt` and `resume-map.json` for batch mode
 - `demo/demo.cast` - recorded `--no-submit` run (play with asciinema)
 - `extract.py`, `schema_dump.py` - form introspection to JSON
-- `map.py` - the single model call (strict JSON field-to-fact mapping)
+- `map.py` - deterministic mapping, with at most one strict JSON backup call
 - `hard_patterns.py`, `templates.py` - deterministic screening answers,
   zero model calls
 - `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py` - fill
@@ -401,17 +405,17 @@ private; it is gitignored by default.
 - `config.py`, `config.example.json` - config file loading (env vars
   override `config.json`, which overrides built-in defaults)
 - `test_offline.py` - 18 offline unit tests for the fill core
-- `test_operation.py` - 33 offline unit tests for queue, tracker,
+- `test_operation.py` - 54 offline unit tests for queue, tracker,
   sweep, launcher, and config (no browser/model needed)
-- `test_reliability.py` - 24 offline unit tests for the submit watchdog,
+- `test_reliability.py` - 50 offline unit tests for the submit watchdog,
   location verifier, and budgeted model calls
 - `submit_watchdog.py`, `location_check.py` - lane reliability modules
   (swallowed-submit recovery, location autocomplete check)
-- `test_tracking.py` - 28 offline unit tests for tracker URL parsing,
+- `test_tracking.py` - 48 offline unit tests for tracker URL parsing,
   scoreboard, funnel analytics, and fuzzy dedup
 - `scoreboard.py`, `analytics.py` - lane scoreboard and funnel analytics
   (`ai-job-pilot-scoreboard`, `ai-job-pilot-analytics`)
-- `test_human.py` - 22 offline tests for heartbeats, code coordination,
+- `test_human.py` - 48 offline tests for heartbeats, code coordination,
   field-map review, and setup
 - `test_*.py` - live-browser integration tests (`--no-submit` only)
 - `docs/ats-notes.md` - Greenhouse, Ashby, Lever, and Workable quirks
@@ -439,3 +443,47 @@ private; it is gitignored by default.
 ## License
 
 MIT. See LICENSE.
+
+## Audit hardening, 2026-10-06
+
+The Greenhouse lane now uses `codegate.coordinate` and `CliNotifier` for human
+code input. Verified confirmation marks Applied and records the tracker row.
+Only failed or expired attempts can requeue, for a later run, with a persisted
+3-attempt cap. Unavailable stdin and ambiguous outcomes stay blocked. Applied
+queue/claims/local-tracker history prevents resubmission. Dry-run releases the
+claim for every outcome without tracker writes or terminal queue marks.
+
+Location descriptors validate at startup. Submit recovery waits 30 seconds by
+default and permits one safe recovery click; an unchanged URL alone blocks for
+human review. The current browser adapter conservatively cannot prove a failed
+submit safe to retry, so ambiguous browser submissions are not re-clicked.
+
+Backup calls in map, extract, and verify use `model.budgeted_chat`: token ceilings,
+a wall deadline, telemetry, and cooperative cancellation between requests. An
+in-flight socket read returns under its capped timeout; late results are discarded.
+Sweeps retain role fingerprints across runs and lock queue merges. Tracker updates
+preserve the first response date and furthest stage. See [queue](docs/queue.md),
+[setup](docs/setup.md), [sweep](docs/sweep.md), and [tracking](docs/tracking.md).
+
+`setup_wizard.py` defaults to cwd, masks credential exports with placeholders,
+and prints `JOBPILOT_CONFIG` for alternate config locations. `codegate.py` is the
+lane coordinator; `code_gate.py` is the manual browser helper.
+
+### Round 2 audit behavior
+
+Configure `JOBPILOT_TARGET_METROS` explicitly before starting a lane. Its default
+is empty, and startup fails before claims when no valid applicant metros are
+configured. Employer office/willingness questions are excluded from applicant
+location verification. Ambiguous state abbreviations require comma or uppercase
+context. Watchdog waits accept 1 through 120 seconds and otherwise use 30;
+static pre-submit error copy is ignored and failed observations block with evidence.
+Confirmed tracker evidence stores the matched phrase and URL, excluding raw page copy.
+
+Queue lane ownership defaults to a host/process token; set `JOBPILOT_LANE` explicitly
+when an operator needs to manage a lane's claim from another process. Model telemetry
+rotates at 5 MiB with two backups; concurrent processes should use separate paths.
+
+Split applicant City, State and Country values are checked as components against
+configured descriptors. Postal readback stays in the fill verification; a ZIP
+alone is not compared to a full metro. The lane checks the employer blocklist
+before its first browser action.

@@ -474,7 +474,7 @@ def _map_with_model(schema, facts, field_keys):
             "\n```\n\nFORM FIELDS (key, type, label, options if any):\n" +
             build_field_list(sub) +
             "\n\nMap every field. Output the JSON array only.")
-    raw = model.chat(SYSTEM_PROMPT, user, "field_map", FIELD_MAP_SCHEMA,
+    raw = model.budgeted_chat(SYSTEM_PROMPT, user, "field_map", FIELD_MAP_SCHEMA,
                      max_tokens=4000)
     # index schema keys for normalization (tolerant: the model truncates keys)
     mapped, guarded, seen = [], [], set()
