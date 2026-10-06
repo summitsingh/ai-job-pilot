@@ -97,6 +97,33 @@ class TestMapTemplate(unittest.TestCase):
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#p"]["value"], "5551234567")
 
+    def test_zip_code_from_facts(self):
+        schema = {"fields": [
+            {"key": "#z", "label": "ZIP Code", "type": "text"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#z"]["action"], "fill")
+        self.assertEqual(m["#z"]["value"],
+                         self.facts.get("zip_code") or
+                         self.facts.get("postal_code") or "")
+
+    def test_prev_employed_defaults_no(self):
+        schema = {"fields": [
+            {"key": "#pe", "label": "Have you previously worked here?",
+             "type": "select", "options": ["Yes", "No"]},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#pe"]["action"], "select")
+        self.assertIn("No", m["#pe"]["value"])
+
+    def test_work_eligible_yes(self):
+        schema = {"fields": [
+            {"key": "#we", "label": "Are you legally eligible to work?",
+             "type": "select", "options": ["Yes", "No"]},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#we"]["action"], "select")
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):

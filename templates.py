@@ -235,6 +235,23 @@ def r_country(f, facts, ats):
             "identity")
 
 
+def r_zip_code(f, facts, ats):
+    return ("do", "fill",
+            facts.get("zip_code") or facts.get("postal_code") or "",
+            "identity")
+
+
+def r_prev_employed(f, facts, ats):
+    # "Have you previously worked here" -> facts, default No.
+    want = (facts.get("previously_employed_here") or "No").strip()
+    return ("opt", [want, "I have not", "No"], "prev-employed")
+
+
+def r_work_eligible(f, facts, ats):
+    # "Legally eligible to work" -> Yes (facts work_authorization).
+    return ("opt", ["Yes"], "work-eligible-yes")
+
+
 def r_linkedin(f, facts, ats):
     return ("do", "fill", facts["linkedin"], "identity")
 
@@ -470,6 +487,13 @@ PATTERNS = [
                              r"\bcity\b|downshift", re.I),
      r_location, {"text", "custom-select"}),
     ("country", re.compile(r"\bcountry\b", re.I), r_country, {"select"}),
+    ("zip-code", re.compile(r"zip.?code|postal.?code", re.I), r_zip_code,
+     {"text", "number"}),
+    ("prev-employed", re.compile(r"have you (ever |previously )?(worked|been employed) (at|for|with)|"
+                                 r"previously (worked|been employed)|worked here before", re.I),
+     r_prev_employed, {"select", "custom-select", "radio", "yesno-button"}),
+    ("work-eligible", re.compile(r"legally eligible|eligible to work", re.I),
+     r_work_eligible, {"select", "custom-select"}),
     ("linkedin", re.compile(r"linkedin", re.I), r_linkedin, {"text", "url"}),
     ("github", re.compile(r"github", re.I), r_github, {"text", "url"}),
     ("website", re.compile(r"portfolio|personal website|^website$|"
