@@ -124,6 +124,24 @@ class TestMapTemplate(unittest.TestCase):
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#we"]["action"], "select")
 
+    def test_privacy_ack_select_answered(self):
+        schema = {"fields": [
+            {"key": "#pa", "label": "Privacy Notice Acknowledgement",
+             "type": "select", "options": ["Acknowledge", "Decline"]},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#pa"]["action"], "select")
+
+    def test_privacy_ack_with_arbitration_stays_guarded(self):
+        schema = {"fields": [
+            {"key": "#ab", "label": "Arbitration Agreement Acknowledgement",
+             "type": "checkbox", "option_label": "I acknowledge"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        # Legal-weight language: never auto-acknowledged.
+        self.assertEqual(m["#ab"]["action"], "skip")
+        self.assertTrue(m["#ab"].get("guard"))
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):

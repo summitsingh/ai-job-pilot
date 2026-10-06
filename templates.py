@@ -457,6 +457,31 @@ def r_authorized_yes(f, facts, ats):
     return ("opt", ["Yes"], "work-auth-authorized-yes")
 
 
+# Privacy-ack safety: legal-weight language must NEVER be auto-acknowledged.
+# Privacy/data-processing acknowledgements are fine; arbitration, background
+# checks, drug tests, assessments, and security clearances always stop for
+# human review.
+ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
+                        r"criminal|credit.?check|security.?clearance|"
+                        r"true and correct|certif",
+                        re.IGNORECASE)
+
+
+def r_privacy_ack_select(f, facts, ats):
+    blob = label_blob(f)
+    if ACK_BAD_RE.search(blob):
+        return None
+    return ("opt", ["Yes", "I agree", "Acknowledge"], "privacy-ack")
+
+
+def r_privacy_ack_check(f, facts, ats):
+    blob = label_blob(f)
+    if ACK_BAD_RE.search(blob):
+        return None
+    return ("do", "click", f.get("option_label") or f.get("label") or "",
+            "privacy-ack-check")
+
+
 def r_military_no(f, facts, ats):
     # Not a veteran; not military spouse; not National Guard/Reserves.
     return ("opt", ["No", "I am not a veteran", "not a veteran"],
@@ -588,6 +613,14 @@ PATTERNS = [
     ("currently-live-us",
      re.compile(r"currently live in the (united states|us|u\.s\.)|currently reside in the (united states|us)", re.I),
      r_yes, {"radio", "yesno-button", "select", "custom-select"}),
+    # privacy/data-processing acknowledgements -> acknowledge. Legal-weight
+    # language (arbitration, background checks, ...) is refused by the
+    # resolver and stays guarded for human review.
+    ("privacy-ack-select", re.compile(r"acknowledg|privacy notice|gdpr disclosure", re.I),
+     r_privacy_ack_select, {"select", "custom-select"}),
+    ("privacy-ack-check", re.compile(r"acknowledg.*privacy|privacy.*acknowledg|"
+                                     r"read and (acknowledge|understood).*privacy", re.I),
+     r_privacy_ack_check, {"checkbox", "radio", "yesno-button"}),
     # military spouse / National Guard / Reserves -> No (not a veteran)
     ("military-no",
      re.compile(r"military spouse|national guard|reserves|armed forces", re.I),
@@ -712,6 +745,12 @@ def map_template(schema, facts, ats="unknown"):
     AUTHORIZED_YES_GUARD_EXC = re.compile(
         r"legally authorized to work(?!.*without sponsorship)|have authorization to work",
         re.IGNORECASE)
+    # Privacy-ack checkboxes have a deterministic answer (acknowledge);
+    # exempt so the privacy-ack-check pattern answers them. Legal-weight
+    # language stays guarded via ACK_BAD_RE in the resolver.
+    PRIVACY_ACK_GUARD_EXC = re.compile(
+        r"acknowledg.*privacy|privacy.*acknowledg|read and (acknowledge|understood).*privacy",
+        re.IGNORECASE)
     for f in fields:
         blob = label_blob(f)
         if GUARD_RE.search(blob):
@@ -721,6 +760,8 @@ def map_template(schema, facts, ats="unknown"):
                 continue  # handled by the sms-consent pattern (Opt-Out)
             if AUTHORIZED_YES_GUARD_EXC.search(blob):
                 continue  # handled by the workauth-authorized pattern (Yes)
+            if PRIVACY_ACK_GUARD_EXC.search(blob) and not ACK_BAD_RE.search(blob):
+                continue  # handled by the privacy-ack-check pattern
             add(f["key"], "skip", "", guard=True)
 
     # 2) group questions; answer per group or per singleton
