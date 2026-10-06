@@ -84,7 +84,7 @@ def main():
         # modifies the user's facts.json on disk.
         if os.environ.get("JOBPILOT_RESUME"):
             facts["resume_path"] = os.environ["JOBPILOT_RESUME"]
-        fmap = map_fields(schema, facts)
+        fmap = map_fields(schema, facts, ats=a.ats)
         json.dump(fmap, open(f"{wd}/map.json", "w"), indent=1)
         result["notes"].append(
             f"map: {len(fmap['map'])} mapped, "

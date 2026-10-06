@@ -7,7 +7,9 @@ Usage: fill.py --schema schema.json --map map.json --port 9226 [--no-submit]
 Strategy (all React-proof, from proven sweeps):
 - text-like "fill" actions: ONE batched JS pass (native value setter +
   input/change events), zero per-field round trips.
-- "select"/"custom-select": scroll, real click, type exact option, Enter.
+- "select"/"custom-select": react-select widgets go through
+  `fill_react_select` (container click, menu pick, self-verify);
+  other custom comboboxes: scroll, real click, type exact option, Enter.
 - "location": scroll, real click, type city, wait, ArrowDown, Enter.
 - "click" (radio/checkbox/yesno-button): scroll + real click.
 - "upload": CDP setFileInputFiles with the resume on the browser host.
@@ -240,7 +242,7 @@ def resolve_submit_key(port, schema):
                 "(() => { const el = document.querySelector(" + json.dumps(sub) +
                 "); if (!el || !el.offsetParent || el.disabled) return null; " +
                 "return 'ok'; })()"), timeout=60)
-            if r.get("result") == "ok":
+            if _cdp_value(r.get("result")) == "ok":
                 return sub
         except Exception:
             pass
@@ -251,7 +253,7 @@ def resolve_submit_key(port, schema):
                 "(() => { const el = document.querySelector(" + json.dumps(cand) +
                 "); return (el && el.offsetParent && !el.disabled) ? 'ok' : null; })()"),
                 timeout=60)
-            if r.get("result") == "ok":
+            if _cdp_value(r.get("result")) == "ok":
                 return cand
         except Exception:
             pass
@@ -264,7 +266,7 @@ def resolve_submit_key(port, schema):
             ".find(x => x.offsetParent && !x.disabled && " +
             "(x.innerText||'').toLowerCase().includes(w));" +
             " return b ? 'ok' : null; })()"), timeout=60)
-        if r.get("result") == "ok":
+        if _cdp_value(r.get("result")) == "ok":
             return "__submit_by_label__"
     except Exception:
         pass
@@ -284,7 +286,7 @@ def resolve_upload_key(port, key):
           " const r=cands.find(c=>c.resume)||cands[0];" +
           " return r&&r.id ? {key: '#'+r.id} : {key: null}; })()")
     try:
-        r = cdp_ok(port, "evalb64", b64(js), timeout=60)["result"]
+        r = _cdp_value(cdp_ok(port, "evalb64", b64(js), timeout=60)["result"])
         return r.get("key") or key
     except Exception:
         return key
@@ -309,12 +311,24 @@ def do_native_select(port, key, value):
           " el.dispatchEvent(new Event('change',{bubbles:true}));"
           " return {ok:true, picked: opts[idx].text.trim()}; })()")
     try:
-        r = cdp_ok(port, "evalb64", b64(js), timeout=60)["result"]
+        r = _cdp_value(cdp_ok(port, "evalb64", b64(js), timeout=60)["result"])
     except Exception as e:
         return False, str(e)[:120]
     if r.get("ok"):
         return True, ""
     return False, r.get("why", "") + " options=" + json.dumps(r.get("options", []))[:160]
+
+
+def _cdp_value(result):
+    """Normalize a CDP Runtime.evaluate result to its plain value.
+
+    Drivers may return the bare value ("rs") or the raw RemoteObject
+    dict ({"type": "string", "value": "rs"}). Accept both so callers
+    never compare a dict to a string.
+    """
+    if isinstance(result, dict):
+        return result.get("value", result)
+    return result
 
 
 def do_select(port, key, value, field_type="select", is_location=False):
@@ -327,12 +341,15 @@ def do_select(port, key, value, field_type="select", is_location=False):
         # container; Ashby autocomplete comboboxes (no such container) and
         # location actions keep the click + type + Enter path below.
         try:
-            kind = cdp_ok(port, "evalb64", b64(
+            kind_raw = cdp_ok(port, "evalb64", b64(
                 '(()=>{const el=document.querySelector(' + json.dumps(key) +
                 ');return (el && el.closest(".select__control"))?"rs":"cb";})()'),
                 timeout=60)["result"]
         except Exception:
-            kind = "cb"
+            kind_raw = "cb"
+        # Drivers may return the bare value or the raw CDP RemoteObject
+        # dict; normalize before comparing (see _cdp_value).
+        kind = _cdp_value(kind_raw)
         if kind == "rs":
             from hard_patterns import fill_react_select
             try:
@@ -388,10 +405,10 @@ def do_select(port, key, value, field_type="select", is_location=False):
         deadline = time.time() + 12
         while time.time() < deadline:
             try:
-                v = cdp_ok(port, "evalb64", b64(
+                v = _cdp_value(cdp_ok(port, "evalb64", b64(
                     '(()=>{const el=document.querySelector(' +
                     json.dumps(key) + ');return el ? el.value : null;})()'),
-                    timeout=30)["result"]
+                    timeout=30)["result"])
             except Exception:
                 v = None
             if v:

@@ -75,3 +75,27 @@
 - The CI guard fails if `facts.json` is tracked. You committed the real
   file. Remove it from git (`git rm --cached facts.json`) and check
   `.gitignore`.
+
+## Unfixable employer form bugs
+
+**Mutually exclusive required checkboxes.**
+- Some Greenhouse forms mark every checkbox in a group individually
+  required while the options are mutually exclusive (seen on visa-status
+  and office-location groups). No selection can ever satisfy validation.
+  Detect it (each box `required`, selecting one does not clear the
+  others' invalid state), log the role as skipped with the reason, and
+  move on. Do not fight the form; it is broken on the employer's side.
+
+**Dropdown missing the applicant's school.**
+- Before assuming the school list is the problem, check the fill
+  router: a past bug compared the whole CDP response dict to the string
+  `"rs"`, silently bypassing `fill_react_select` (execution fell
+  through to the generic path, which often failed to pick the option).
+  If the router is correct and the school genuinely is not listed, do
+  not substitute a different school. Leave the field for manual review
+  or skip the role.
+
+**Submit does nothing, no errors shown.**
+- Check for a JavaScript-enforced cover letter the schema marked
+  optional, and re-verify the location autocomplete did not pick the
+  wrong city. See `docs/greenhouse-quirks.md`.

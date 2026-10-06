@@ -2,18 +2,20 @@
 
 This repo is a deterministic autofill harness for ATS job application forms
 (Greenhouse, Ashby, Lever). An agent's job: take a posting URL and applicant
-facts, fill the form truthfully, verify the fill, and submit. One model call
-per form; everything else is deterministic.
+facts, fill the form truthfully, verify the fill, and submit. Deterministic
+patterns fill first; the model is the backup.
 
-Local models first: the pipeline routes field mapping through your
-local model (LM Studio / Ollama, OpenAI-compatible) with one strict-JSON
-call per form in `map.py`, which raises if the server is unreachable, so
-keep the model server up before a run. The deterministic
-`hard_patterns.py` / `templates.py` are a separate offline path for
-template testing (`test_templates.py`), not an automatic fallback.
-Only one model needs to be loaded at a time; the harness probes the
-server and prefers whichever chain model is actually loaded. See
-`docs/multi-machine.md` for multi-machine operation.
+Deterministic first: the pipeline routes field mapping through
+`hard_patterns.py` / `templates.py` first, backed by 500+ real
+submitted applications of proven field data. The local model (LM Studio /
+Ollama, OpenAI-compatible) is the backup for fields the deterministic
+pass leaves unmapped or marks low-confidence, via at most one
+strict-JSON call per form in `map.py` (only if any field needs it),
+which raises if the server is unreachable, so keep the model server up
+before a run. Only one model needs to be loaded at a
+time; the harness probes the server and prefers whichever chain model is
+actually loaded. See `docs/multi-machine.md` for multi-machine
+operation.
 
 ## The one command
 
@@ -22,9 +24,10 @@ python3 ats_fill.py --url <posting URL> --port 9226 --no-submit \
     --workdir /tmp/jobpilot/run1
 ```
 
-Pipeline: `schema_dump` (read the form) -> `map` (one strict-JSON model call
-mapping fields to facts) -> `fill` (CDP autofill + readback diff) ->
-`verify`. Result goes to stdout and `<workdir>/result.json`:
+Pipeline: `schema_dump` (read the form) -> `map` (deterministic
+`hard_patterns` / `templates` first; one strict-JSON model call only for
+unmapped or low-confidence fields) -> `fill` (CDP autofill + readback
+diff) -> `verify`. Result goes to stdout and `<workdir>/result.json`:
 `{status, confirmation_evidence, fields_filled, fields_skipped, notes}`.
 
 ## Setup (do this once)
@@ -38,11 +41,14 @@ mapping fields to facts) -> `fill` (CDP autofill + readback diff) ->
    google-chrome --remote-debugging-port=9226 --remote-allow-origins='*' \
      --no-first-run --no-default-browser-check
    ```
-3. Model: an OpenAI-compatible endpoint with strict JSON schema support
-   (`response_format: json_schema, strict: true`). LM Studio default
-   `http://127.0.0.1:1234` works; Qwen3-Coder is the validated model
-   family. Override with `JOBPILOT_MODEL_URL`. If the model cannot do
-   constrained JSON, stop, the map step will produce garbage.
+3. Model (backup only): an OpenAI-compatible endpoint with strict JSON
+   schema support (`response_format: json_schema, strict: true`), used
+   only for fields the deterministic pass leaves unmapped or marks
+   low-confidence. LM Studio default `http://127.0.0.1:1234` works;
+   Qwen3-Coder is the validated model family. Override with
+   `JOBPILOT_MODEL_URL`. If the model cannot do constrained JSON, the
+   unmapped fields are skipped rather than guessed; the map step will
+   not produce garbage, it just maps less.
 4. Transport: if Chrome runs on this same machine, set
    `JOBPILOT_CDP_URL="127.0.0.1:9226"` and skip SSH entirely. For a
    remote browser host, set `JOBPILOT_SSH_HOST="user@host"` instead.
@@ -82,10 +88,12 @@ empty code boxes:
 2. Ask the user for the code from their email (or run `code_gate.py`
    and let it prompt).
 3. Enter it into the boxes, click submit, and verify the confirmation
-   page (URL contains `/confirmation`, text contains "thank you for
-   applying").
-4. Codes are single-use and expire quickly. If entry fails, ask for a
-   fresh code rather than retrying a stale one.
+   page: URL contains `/confirmation`, or text contains
+   "successfully been received" / "thank you for applying".
+4. Codes are single-use and expire quickly (under 40 minutes). If entry
+   fails, ask for a fresh code rather than retrying a stale one. There
+   is no resend control on the gate page; submitting the form again
+   triggers a fresh code email.
 
 ## Safety invariants (never break these)
 
@@ -118,9 +126,12 @@ empty code boxes:
 
 - `ats_fill.py` — orchestrator (dump -> map -> fill -> verify -> submit)
 - `extract.py`, `schema_dump.py` — form introspection to JSON
-- `map.py` — the single model call (strict JSON field-to-fact mapping)
-- `hard_patterns.py`, `templates.py` — deterministic screening answers,
-  zero model calls; unknown fields are skipped
+- `map.py` — mapping orchestrator: deterministic `hard_patterns` /
+  `templates` first, at most one strict-JSON model call, only for fields
+  left unmapped or low-confidence
+- `hard_patterns.py`, `templates.py` — deterministic screening answers;
+  no model calls inside these modules; fields with no truthful answer
+  map to `skip` (safety invariant 1)
 - `fill.py`, `set_select.py`, `set_select2.py`, `modal_common.py` — fill
   primitives over CDP
 - `ashby_graphql.py` — Ashby GraphQL mutation-template capture (fetch/XHR

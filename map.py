@@ -424,7 +424,7 @@ def dedupe_radio_clicks(mapped, schema):
     return mapped
 
 
-def map_fields(schema, facts):
+def map_fields(schema, facts, ats="unknown"):
     # Fast path: LinkedIn resume picker is mechanical, skip the model call.
     if is_resume_step(schema):
         mapped = [{"field": f["key"], "action": "skip", "value": ""}
@@ -432,12 +432,47 @@ def map_fields(schema, facts):
         mapped = resume_step_fix(schema, mapped)
         return {"map": mapped, "skipped_by_guard": [], "unmapped": [],
                 "note": "resume-fast-path"}
+    # Deterministic-first: templates answer every recognized field from
+    # proven field data. The local model is the backup: it sees only the
+    # fields templates left unmapped, or skipped without a guard marker
+    # (guard-skips stay skipped; the model never overrides them).
+    from templates import map_template
+    tmpl = map_template(schema, facts, ats)
+    candidates = list(tmpl["unmapped"]) + [
+        e["field"] for e in tmpl["map"]
+        if e["action"] == "skip" and not e.get("guard")
+        and e["field"] not in tmpl["unmapped"]]
+    if not candidates:
+        return tmpl
+    model_mapped, model_guarded, model_seen = _map_with_model(
+        schema, facts, candidates)
+    # Model answers replace template skips; template answers stand.
+    skip_keys = {e["field"] for e in tmpl["map"]
+                 if e["action"] == "skip" and not e.get("guard")}
+    mapped = ([e for e in tmpl["map"] if e["field"] not in skip_keys]
+              + model_mapped)
+    guarded = tmpl["skipped_by_guard"] + model_guarded
+    unmapped = [k for k in candidates if k not in model_seen]
+    mapped = dedupe_source_checkboxes(mapped, schema, facts)
+    mapped = dedupe_radio_clicks(mapped, schema)
+    mapped = apply_work_auth_overrides(mapped, schema)
+    mapped = apply_prev_employed_override(mapped, schema, facts)
+    return {"map": mapped, "skipped_by_guard": guarded, "unmapped": unmapped,
+            "note": tmpl.get("note", "") + "+model-backup"}
+
+
+def _map_with_model(schema, facts, field_keys):
+    """Model backup: map only the given field keys via one strict-JSON call.
+
+    Returns (mapped, guarded, seen). Raises if the model server is down.
+    """
+    sub = {"fields": [f for f in schema["fields"] if f["key"] in field_keys]}
     ok, info = model.probe()
     if not ok:
         raise RuntimeError(f"local model not reachable: {info}")
     user = ("APPLICANT FACTS:\n```json\n" + json.dumps(facts, indent=1) +
             "\n```\n\nFORM FIELDS (key, type, label, options if any):\n" +
-            build_field_list(schema) +
+            build_field_list(sub) +
             "\n\nMap every field. Output the JSON array only.")
     raw = model.chat(SYSTEM_PROMPT, user, "field_map", FIELD_MAP_SCHEMA,
                      max_tokens=4000)
@@ -446,10 +481,10 @@ def map_fields(schema, facts):
     for item in raw:
         if not isinstance(item, dict):
             continue
-        canon = resolve_key(item.get("field", ""), schema, item.get("value", ""))
+        canon = resolve_key(item.get("field", ""), sub, item.get("value", ""))
         if not canon or canon in seen:
             continue
-        field = next(f for f in schema["fields"] if f["key"] == canon)
+        field = next(f for f in sub["fields"] if f["key"] == canon)
         label_blob = f"{field.get('label','')} {field.get('key','')} {field.get('option_label','')}"
         entry = {"field": canon, "action": item.get("action", "skip"),
                  "value": item.get("value", "")}
@@ -466,12 +501,7 @@ def map_fields(schema, facts):
                 entry = coerce_action(field, entry)
         mapped.append(entry)
         seen.add(canon)
-    unmapped = [f["key"] for f in schema["fields"] if f["key"] not in seen]
-    mapped = dedupe_source_checkboxes(mapped, schema, facts)
-    mapped = dedupe_radio_clicks(mapped, schema)
-    mapped = apply_work_auth_overrides(mapped, schema)
-    mapped = apply_prev_employed_override(mapped, schema, facts)
-    return {"map": mapped, "skipped_by_guard": guarded, "unmapped": unmapped}
+    return mapped, guarded, seen
 
 
 def apply_work_auth_overrides(mapped, schema):
