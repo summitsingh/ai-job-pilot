@@ -18,9 +18,10 @@ def audit_form(initial, live, mapping, mismatched, invalid=()):
         if key not in original:
             blockers.append('new-required:' + key)
             continue
-        action = mapped.get(key, {}).get('action')
-        if action and action != 'skip':
-            continue
+        answer = mapped.get(key, {})
+        if answer.get('guard'):
+            blockers.append('human-review:' + key)
+        # A proposed mapping is not evidence that the live control holds a value.
         satisfied = (bool(field.get('checked')) if field.get('type') in ('checkbox', 'radio')
                      else bool(str(field.get('value') or '').strip()))
         if not satisfied:
