@@ -23,6 +23,16 @@ class PreSubmitAuditTests(unittest.TestCase):
         self.assertIn('mismatch:#city', blockers)
         self.assertIn('invalid:#city', blockers)
 
+    def test_mapped_required_empty_value_blocks(self):
+        schema = {'fields': [{'key': '#email', 'type': 'email', 'required': True, 'value': ''}]}
+        mapping = {'map': [{'field': '#email', 'action': 'type', 'value': 'candidate@example.com'}]}
+        self.assertIn('unanswered-required:#email', audit_form(schema, schema, mapping, []))
+
+    def test_guarded_required_field_blocks_even_if_checked(self):
+        schema = {'fields': [{'key': '#cert', 'type': 'checkbox', 'required': True, 'checked': True}]}
+        mapping = {'map': [{'field': '#cert', 'action': 'skip', 'guard': 'human-review'}]}
+        self.assertIn('human-review:#cert', audit_form(schema, schema, mapping, []))
+
     def test_optional_skip_and_filled_required_pass(self):
         schema = {'fields': [{'key': '#cover', 'required': False}, {'key': '#city', 'required': True, 'value': 'Example City'}]}
         mapping = {'map': [{'field': '#cover', 'action': 'skip'}, {'field': '#city', 'action': 'location', 'value': 'Example City'}]}
