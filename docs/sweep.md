@@ -48,19 +48,24 @@ and applies, in order:
    only an explicit US marker normalizes it to "Remote (US)".
 3. **Sponsorship language** (`SPONSOR_NO`): rejects postings whose
    text rules out visa sponsorship ("no sponsorship", "US citizens
-   only", ...). This filter exists for applicants who need
-   sponsorship; if you do not, delete or bypass the check.
+   only", ...). For applicants who *require* explicit sponsorship, add
+   `--require-sponsorship`: a positive statement must also be present in the
+   posting description. Missing or ambiguous language is withheld for review;
+   this is a text filter, not proof that an employer will sponsor a particular
+   candidate. Confirm the source posting before applying.
 4. **Salary floor** (`--min-salary`, default 100000): rejects postings
    whose stated max is below the floor. String amounts like "$90,000"
    and "90k" are parsed. Undisclosed salary passes.
 5. **Dedup**: rejects URLs already in the applied log
-   (`--applied`, default none; pass the same
-   `./applications.jsonl` the tracker writes) and duplicates within
-   the batch.
+   (`--applied`, default none; pass the same `./applications.jsonl` the
+   tracker writes), exact URLs in imported JSON/JSONL history, and duplicates
+   within the batch. Historical entries without URLs can match by normalized
+   company and title; two distinct known job IDs are not treated as exact
+   duplicates merely because their titles match.
 
 ```bash
 python3 sweep.py --in raw.json --applied applications.jsonl \
-  --queue queue.json --min-salary 100000 --source "sweep 2026-01-15"
+  --queue queue.json --min-salary 100000 --require-sponsorship
 python3 sweep.py --in raw.json --dry-run   # queue-safe review
 ```
 
