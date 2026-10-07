@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Re-audit the live form immediately before any submit click. Newly visible
+  required fields, unanswered required consent, invalid controls, and readback
+  mismatches block submission and appear in `fill.json` as `audit_blockers`.
+- `sweep.py --require-sponsorship` opt-in filters out postings without an
+  explicit positive sponsorship statement; negative statements still take
+  precedence. Imported URL-less history entries dedupe by company/title,
+  while postings with distinct known job IDs remain distinct for exact dedup.
+- The public repo excludes applicant facts, application logs, and private
+  logger/automation modules; these changes add no private data.
+
 ## Unreleased - 2026-10-06: template library expansion (private harness sync)
 
 - templates.py: new deterministic screening patterns ported from production

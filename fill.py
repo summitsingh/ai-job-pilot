@@ -25,6 +25,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (ensure_driver, cdp_ok, cdp, b64, host_ssh,
                     host_test_file, is_direct)
+from form_audit import audit_form
+from schema_dump import DUMP_JS
 
 TEXT_TYPES = {"text", "email", "tel", "url", "number", "password", "textarea"}
 
@@ -732,6 +734,20 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
         pf["verified"] = bool(ok)
         (filled if ok else mismatched).append(pf["field"])
 
+    # Re-scrape the live form after filling: conditional required fields may
+    # have appeared since the initial schema. Audit failure blocks submit.
+    try:
+        live = cdp_ok(port, "evalb64", b64(DUMP_JS), timeout=60)["result"]
+        invalid = cdp_ok(port, "evalb64", b64(
+            "(()=>Array.from(document.querySelectorAll('[aria-invalid=\"true\"]'))"
+            ".map(x => x.id ? '#'+CSS.escape(x.id) : null).filter(Boolean))()"),
+            timeout=60)["result"]
+        blockers = audit_form(schema, live, fmap, mismatched, invalid)
+    except Exception as e:
+        blockers = ["audit-failed:" + str(e)[:160]]
+    if blockers:
+        notes.append("PRE-SUBMIT BLOCKERS: " + ", ".join(blockers))
+
     # 6) screenshot (saved on the browser host in the SSH lane; saved on the
     # controller in the direct lane, where the driver runs locally)
     if shot_path:
@@ -747,9 +763,9 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
         except Exception as e:
             notes.append(f"screenshot failed: {e}")
 
-    # 7) submit
+    # 7) submit only after the live pre-submit audit succeeds.
     submitted = False
-    if not no_submit:
+    if not no_submit and not blockers:
         sub = resolve_submit_key(port, schema)
         if sub == "__submit_by_label__":
             # resolved by label: click via JS text match
@@ -780,6 +796,7 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
             "fields_attempted": len(per_field),
             "fields_filled": filled,
             "fields_mismatched": mismatched,
+            "audit_blockers": blockers,
             "fields_skipped": [{"field": s["field"],
                                 "guard": s.get("guard", "")} for s in skipped],
             "submitted": submitted,

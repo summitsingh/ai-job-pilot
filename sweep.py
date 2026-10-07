@@ -81,6 +81,8 @@ SPONSOR_NO = [
     "does not sponsor", "does not provide sponsorship", "no sponsorship",
     "citizenship required", "green card holders only",
     "permanent residents only", "must be a u.s. citizen",
+    "do not sponsor", "doesn't sponsor", "not offer visa sponsorship",
+    "not provide visa sponsorship", "sponsorship not available",
 ]
 
 
@@ -109,12 +111,17 @@ def location_ok(location, workplace=""):
     return False, ""
 
 
-def sponsorship_ok(description):
+def sponsorship_ok(description, require_positive=False):
     dl = (description or "").lower().replace("\n", " ")
     if any(p in dl for p in SPONSOR_NO):
         return False
     if re.search(r"\bno\b.{0,25}\bopt\b", dl):
         return False
+    if require_positive:
+        return bool(re.search(
+            r"\b(?:visa sponsorship|sponsorship (?:available|provided|offered|supported)|"
+            r"sponsor (?:visas?|candidates|employees)|h[ -]?1b (?:transfer|sponsorship)|"
+            r"visa (?:support|transfer))\b", dl))
     return True
 
 
@@ -317,7 +324,7 @@ def find_duplicates(candidates):
 
 
 def filter_postings(raw, applied_urls=(), min_salary=100000,
-                    source="sweep", now=None, history=()):
+                    source="sweep", now=None, history=(), require_sponsorship=False):
     """Apply all filters; return (candidates, stats). Pure.
 
     applied_urls: normalized URLs already touched (from the tracker).
@@ -337,6 +344,17 @@ def filter_postings(raw, applied_urls=(), min_salary=100000,
             key = _role_key(previous)
             buckets[key[:3]].append((previous, key))
     seen = set()
+    history_urls = set()
+    url_less_names = set()
+    for past in history:
+        if not isinstance(past, dict):
+            continue
+        past_url = norm_url(past.get('url') or past.get('job_url') or past.get('Job URL') or '')
+        if past_url:
+            history_urls.add(past_url)
+        else:
+            url_less_names.add((normalize_company(past.get('company') or past.get('Company')),
+                                tuple(title_tokens(past.get('title') or past.get('Title')))))
     now = now or datetime.datetime.now(datetime.timezone.utc).isoformat()
     for j in raw:
         if not isinstance(j, dict):
@@ -347,7 +365,10 @@ def filter_postings(raw, applied_urls=(), min_salary=100000,
             stats["no_url"] += 1
             continue
         nu = norm_url(url)
-        if nu in applied_urls or nu in seen:
+        if (nu in applied_urls or nu in seen or nu in history_urls or
+                (url_less_names and
+                 (normalize_company(j.get('company')),
+                  tuple(title_tokens(j.get('title')))) in url_less_names)):
             stats["dup"] += 1
             continue
         seen.add(nu)
@@ -358,7 +379,7 @@ def filter_postings(raw, applied_urls=(), min_salary=100000,
         if not ok:
             stats["loc_fail"] += 1
             continue
-        if not sponsorship_ok(j.get("description")):
+        if not sponsorship_ok(j.get("description"), require_sponsorship):
             stats["sponsor_fail"] += 1
             continue
         if not salary_ok(j.get("salary_min"), j.get("salary_max"),
@@ -411,6 +432,8 @@ def main():
     ap.add_argument("--fingerprints", default="",
                     help="persistent role history (default: queue stem-fingerprints.jsonl)")
     ap.add_argument("--min-salary", type=float, default=100000)
+    ap.add_argument("--require-sponsorship", action="store_true",
+                    help="only queue postings explicitly offering visa sponsorship")
     ap.add_argument("--source", default="sweep")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--workdir", default="/tmp/jobpilot",
@@ -431,7 +454,8 @@ def main():
             from job_queue import load_queue
             history += load_queue(a.queue)
         cands, stats = filter_postings(raw, applied, a.min_salary, a.source,
-                                      history=history)
+                                      history=history,
+                                      require_sponsorship=a.require_sponsorship)
         stats["candidates"] = len(cands)
         save_review(stats, a.workdir)
         print(json.dumps(stats, indent=1))
@@ -444,7 +468,8 @@ def main():
         fingerprints = load_history(history_path)
         history += fingerprints + jobs
         cands, stats = filter_postings(raw, applied, a.min_salary, a.source,
-                                      history=history)
+                                      history=history,
+                                      require_sponsorship=a.require_sponsorship)
         seen = {norm_url(j.get("url", "")) for j in jobs}
         additions = [c for c in cands if norm_url(c["url"]) not in seen]
         jobs.extend(additions)
