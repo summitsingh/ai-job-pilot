@@ -80,6 +80,14 @@ For a remote browser host, set `JOBPILOT_SSH_HOST="user@browser-host"`
 instead of `JOBPILOT_CDP_URL`. For guided setup, run `ai-job-pilot-setup`
 and see [the setup wizard guide](docs/setup.md).
 
+## Operational lessons
+
+See [Lessons from sequential application automation](docs/automation-lessons.md)
+for anonymized findings on dropdown readback, full-text verification, consent
+propagation, duplicate prevention, deferred input, and employer diversification.
+The note distinguishes observed fixes from recommendations and does not publish
+candidate data or claim that deployment-only changes are shipped here.
+
 ## Safety
 
 - **No invented data.** Fields without answers are skipped, never guessed.
