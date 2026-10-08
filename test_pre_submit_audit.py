@@ -33,6 +33,11 @@ class PreSubmitAuditTests(unittest.TestCase):
         mapping = {'map': [{'field': '#cert', 'action': 'skip', 'guard': 'human-review'}]}
         self.assertIn('human-review:#cert', audit_form(schema, schema, mapping, []))
 
+    def test_optional_guarded_field_blocks_submit(self):
+        schema = {'fields': [{'key': '#arbitration', 'required': False, 'value': ''}]}
+        mapping = {'map': [{'field': '#arbitration', 'action': 'skip', 'guard': 'human-review'}]}
+        self.assertIn('human-review:#arbitration', audit_form(schema, schema, mapping, []))
+
     def test_optional_skip_and_filled_required_pass(self):
         schema = {'fields': [{'key': '#cover', 'required': False}, {'key': '#city', 'required': True, 'value': 'Example City'}]}
         mapping = {'map': [{'field': '#cover', 'action': 'skip'}, {'field': '#city', 'action': 'location', 'value': 'Example City'}]}
