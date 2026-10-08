@@ -381,6 +381,43 @@ class TestMapTemplate(unittest.TestCase):
         ]}
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#d"]["action"], "select")
+        self.assertEqual(m["#d"]["value"], "Computer Science")
+        self.assertEqual(m["#d"]["note"], "discipline")
+
+    def test_field_of_study_discipline_from_facts(self):
+        facts = dict(self.facts)
+        facts["discipline"] = "Electrical Engineering"
+        schema_text = {"fields": [
+            {"key": "#d", "label": "Field of study / discipline", "type": "text"},
+        ]}
+        m = mapped(map_template(schema_text, facts, "greenhouse"))
+        self.assertEqual(m["#d"]["action"], "fill")
+        self.assertEqual(m["#d"]["value"], "Electrical Engineering")
+
+        schema_select = {"fields": [
+            {"key": "#d_sel", "label": "Field of study / discipline", "type": "select",
+             "options": ["Computer Science", "Electrical Engineering", "Other"]},
+        ]}
+        m_sel = mapped(map_template(schema_select, facts, "greenhouse"))
+        self.assertEqual(m_sel["#d_sel"]["action"], "select")
+        self.assertEqual(m_sel["#d_sel"]["value"], "Electrical Engineering")
+
+    def test_discipline_no_facts_skips(self):
+        facts = dict(self.facts)
+        facts.pop("discipline", None)
+        facts["education"] = []
+        schema_text = {"fields": [
+            {"key": "#d", "label": "Field of study / discipline", "type": "text"},
+        ]}
+        m = mapped(map_template(schema_text, facts, "greenhouse"))
+        self.assertEqual(m["#d"]["action"], "skip")
+
+        schema_select = {"fields": [
+            {"key": "#d_sel", "label": "Field of study / discipline", "type": "select",
+             "options": ["Computer Science", "Electrical Engineering", "Other"]},
+        ]}
+        m_sel = mapped(map_template(schema_select, facts, "greenhouse"))
+        self.assertEqual(m_sel["#d_sel"]["action"], "skip")
 
     def test_inoffice_willingness(self):
         schema = {"fields": [

@@ -400,11 +400,60 @@ def r_degree(f, facts, ats):
     return ("do", "fill", "BS Computer Science", "education")
 
 
+def _extract_disciplines(facts):
+    majors = []
+
+    def _add(val):
+        if not val:
+            return
+        val = str(val).strip()
+        if val and val not in majors:
+            majors.append(val)
+
+    # Direct facts fields take precedence
+    for k in ("discipline", "major", "field_of_study"):
+        v = facts.get(k)
+        if v:
+            _add(v)
+
+    # Education entries
+    for e in facts.get("education") or []:
+        for k in ("discipline", "major", "field_of_study"):
+            v = e.get(k)
+            if v:
+                _add(v)
+        deg = str(e.get("degree", "")).strip()
+        if deg:
+            cleaned = re.sub(
+                r"^(?:(?:bachelor|master|doctor)(?:'s)?(?:\s+of\s+[a-zA-Z]+)?(?:\s+in)?|"
+                r"[bm]\.?[sa]\.?(?:\s+in)?|"
+                r"ph\.?d\.?(?:\s+in)?)\s*",
+                "",
+                deg,
+                flags=re.I,
+            ).strip()
+            if cleaned:
+                for part in re.split(r"[,&/]", cleaned):
+                    _add(part.strip())
+            for part in re.split(r"[,&/]", deg):
+                _add(part.strip())
+
+    return majors
+
+
+def r_discipline(f, facts, ats):
+    # Field of study / discipline from facts (discipline field or education entries).
+    majors = _extract_disciplines(facts)
+    if not majors:
+        return ("do", "skip", "", "discipline-no-fact")
+    ftype = (f.get("type") or "").lower()
+    if ftype in ("select", "custom-select"):
+        return ("opt", majors + ["Other"], "discipline")
+    return ("do", "fill", majors[0], "discipline")
+
+
 def r_major(f, facts, ats):
-    if f.get("type") == "select":
-        return ("opt", ["Computer Science", "Computer science", "CS", "Other"],
-                "education")
-    return ("do", "fill", "Computer Science", "education")
+    return r_discipline(f, facts, ats)
 
 
 def r_gradyear(f, facts, ats):
@@ -585,19 +634,6 @@ def r_edu_year(f, facts, ats, which):
     return ("do", "fill", str(yr), "edu-date")
 
 
-def r_discipline(f, facts, ats):
-    # Field of study / discipline from facts education entries.
-    majors = []
-    for e in facts.get("education") or []:
-        deg = str(e.get("degree", ""))
-        for part in re.split(r"[,&/]", deg):
-            part = part.strip()
-            if part and part not in majors:
-                majors.append(part)
-    if not majors:
-        return None
-    return ("opt", majors + ["Other"], "discipline")
-
 
 def r_inoffice(f, facts, ats):
     # In-office / hybrid / onsite willingness: facts-driven, default yes.
@@ -717,12 +753,12 @@ PATTERNS = [
      {"text", "select", "custom-select"}),
     ("degree", re.compile(r"\bdegree\b", re.I), r_degree,
      {"text", "select", "custom-select"}),
-    ("major", re.compile(r"\bmajor\b|field of study|discipline", re.I),
-     r_major, {"text", "select"}),
+    ("discipline", re.compile(r"\bdiscipline\b|field of study", re.I),
+     r_discipline, {"text", "select", "custom-select"}),
+    ("major", re.compile(r"\bmajor\b", re.I),
+     r_major, {"text", "select", "custom-select"}),
     ("gradyear", re.compile(r"graduation|end year|class of|year.*graduat",
                             re.I), r_gradyear, {"text", "select", "number"}),
-    ("discipline", re.compile(r"\bdiscipline\b|field of study", re.I),
-     r_discipline, {"select", "custom-select"}),
     ("edu-start-month", re.compile(r"start.*month|month.*start", re.I),
      lambda f, facts, ats: r_edu_month(f, facts, ats, "start"),
      {"select", "custom-select"}),
