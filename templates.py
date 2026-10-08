@@ -113,6 +113,39 @@ FACTS = _load_facts()
 
 PROVISIONAL = {"wellfound"}
 
+
+def facts_affirm_work_auth(facts):
+    """Return True only when applicant facts affirm work eligibility/authorization.
+
+    Returns False when facts are absent, empty, or negative.
+    """
+    if not facts or not isinstance(facts, dict):
+        return False
+
+    keys = ("work_authorization", "work_eligible", "legally_authorized")
+    found_any = False
+    for k in keys:
+        if k in facts and facts[k] is not None:
+            raw = facts[k]
+            if isinstance(raw, bool):
+                if not raw:
+                    return False
+                found_any = True
+                continue
+            val = str(raw).strip()
+            if not val:
+                continue
+            lower = val.lower()
+            if re.search(
+                r"^(?:no\b|none\b|false\b|n/?a\b)|"
+                r"\b(?:not\s+(?:legally\s+)?(?:authorized|eligible)|"
+                r"unauthorized|ineligible|no\s+authorization|without\s+authorization)\b",
+                lower,
+            ):
+                return False
+            found_any = True
+    return found_any
+
 # Resolver result shapes:
 #   ("do", action, value, note)  - ready-to-use action
 #   ("opt", wants, note)         - pick the option whose label matches a want:
@@ -287,12 +320,14 @@ def r_prev_employed(f, facts, ats):
 
 
 def r_work_eligible(f, facts, ats):
-    # "Legally eligible to work" -> Yes (facts work_authorization).
+    # "Legally eligible to work" -> Yes only when facts affirm work auth/eligibility.
     blob = label_blob(f)
     if ACK_BAD_RE.search(blob):
         return None
     if sponsorship_excluded(blob):
         return None
+    if not facts_affirm_work_auth(facts):
+        return ("do", "skip", "", "work-eligible-no-fact")
     return ("opt", ["Yes"], "work-eligible-yes")
 
 
@@ -496,13 +531,15 @@ def r_verify_identity(f, facts, ats):
 
 
 def r_authorized_yes(f, facts, ats):
-    # "Legally authorized to work" -> Yes (facts work_authorization).
+    # "Legally authorized to work" -> Yes only when facts affirm work auth/eligibility.
     # Excludes "without sponsorship" phrasing variants (handled by sponsorship or guarded).
     blob = label_blob(f)
     if ACK_BAD_RE.search(blob):
         return None
     if sponsorship_excluded(blob):
         return None
+    if not facts_affirm_work_auth(facts):
+        return ("do", "skip", "", "work-auth-no-fact")
     return ("opt", ["Yes"], "work-auth-authorized-yes")
 
 

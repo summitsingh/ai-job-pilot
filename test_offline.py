@@ -14,7 +14,8 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from templates import map_template, sponsorship_excluded
+from templates import (map_template, sponsorship_excluded,
+                       r_work_eligible, r_authorized_yes)
 from hard_patterns import (matches, pick_sponsorship_option,
                             is_country_visa_option, is_sponsorship_field)
 from batch_apply import load_dedup_set, match_resume
@@ -123,6 +124,48 @@ class TestMapTemplate(unittest.TestCase):
         ]}
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#we"]["action"], "select")
+
+    def test_work_eligible_empty_facts_skips(self):
+        field = {"key": "#we", "label": "Are you legally eligible to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        res = r_work_eligible(field, {}, "greenhouse")
+        self.assertEqual(res, ("do", "skip", "", "work-eligible-no-fact"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, {}, "greenhouse"))
+        self.assertEqual(m["#we"]["action"], "skip")
+        self.assertEqual(m["#we"]["note"], "work-eligible-no-fact")
+
+    def test_work_eligible_facts_affirmed_answers_yes(self):
+        field = {"key": "#we", "label": "Are you legally eligible to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        facts = {"work_authorization": True}
+        res = r_work_eligible(field, facts, "greenhouse")
+        self.assertEqual(res, ("opt", ["Yes"], "work-eligible-yes"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, facts, "greenhouse"))
+        self.assertEqual(m["#we"]["action"], "select")
+        self.assertEqual(m["#we"]["value"], "Yes")
+
+    def test_authorized_yes_empty_facts_skips(self):
+        field = {"key": "#wa", "label": "Are you legally authorized to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        res = r_authorized_yes(field, {}, "greenhouse")
+        self.assertEqual(res, ("do", "skip", "", "work-auth-no-fact"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, {}, "greenhouse"))
+        self.assertEqual(m["#wa"]["action"], "skip")
+        self.assertEqual(m["#wa"]["note"], "work-auth-no-fact")
+
+    def test_authorized_yes_facts_affirmed_answers_yes(self):
+        field = {"key": "#wa", "label": "Are you legally authorized to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        facts = {"work_authorization": "yes, authorized"}
+        res = r_authorized_yes(field, facts, "greenhouse")
+        self.assertEqual(res, ("opt", ["Yes"], "work-auth-authorized-yes"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, facts, "greenhouse"))
+        self.assertEqual(m["#wa"]["action"], "select")
+        self.assertEqual(m["#wa"]["value"], "Yes")
 
     def test_pure_work_auth_radio_answered_yes(self):
         schema = {"fields": [
