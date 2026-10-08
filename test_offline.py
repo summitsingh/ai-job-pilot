@@ -14,7 +14,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from templates import map_template
+from templates import map_template, sponsorship_excluded
 from hard_patterns import (matches, pick_sponsorship_option,
                             is_country_visa_option, is_sponsorship_field)
 from batch_apply import load_dedup_set, match_resume
@@ -136,6 +136,96 @@ class TestMapTemplate(unittest.TestCase):
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#auth_yes"]["action"], "click")
         self.assertEqual(m["#auth_yes"]["value"], "Yes")
+
+    def test_pure_have_authorization_radio_answered_yes(self):
+        schema = {"fields": [
+            {"key": "#auth_yes",
+             "label": "Do you have authorization to work in the US?",
+             "option_label": "Yes", "type": "radio", "group": "auth_q"},
+            {"key": "#auth_no",
+             "label": "Do you have authorization to work in the US?",
+             "option_label": "No", "type": "radio", "group": "auth_q"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#auth_yes"]["action"], "click")
+        self.assertEqual(m["#auth_yes"]["value"], "Yes")
+
+    def test_sponsorship_excluded_helper(self):
+        self.assertTrue(sponsorship_excluded("without sponsorship"))
+        self.assertTrue(sponsorship_excluded("without requiring sponsorship"))
+        self.assertTrue(sponsorship_excluded("no sponsorship"))
+        # Case-insensitivity
+        self.assertTrue(sponsorship_excluded("WITHOUT SPONSORSHIP"))
+        self.assertTrue(sponsorship_excluded("Without Requiring Sponsorship"))
+        self.assertTrue(sponsorship_excluded("No Sponsorship"))
+        # Context variations
+        self.assertTrue(sponsorship_excluded("authorized to work in the US without requiring sponsorship"))
+        self.assertTrue(sponsorship_excluded("have authorization to work without sponsorship"))
+        self.assertTrue(sponsorship_excluded("authorized to work (no sponsorship)"))
+        self.assertTrue(sponsorship_excluded("without   requiring   sponsorship"))
+        # Negative cases
+        self.assertFalse(sponsorship_excluded("Are you legally authorized to work in the US?"))
+        self.assertFalse(sponsorship_excluded("Do you have authorization to work in the US?"))
+        self.assertFalse(sponsorship_excluded("Will you require sponsorship?"))
+        self.assertFalse(sponsorship_excluded(""))
+        self.assertFalse(sponsorship_excluded(None))
+
+    def test_sponsorship_exclusion_branch1_phrasings(self):
+        # Branch 1: "authorized to work" / "legally authorized to work"
+        variants = [
+            "Are you authorized to work in the US without requiring sponsorship?",
+            "Are you authorized to work in the US without sponsorship?",
+            "Are you authorized to work in the US with no sponsorship?",
+            "Are you legally authorized to work in the US without requiring sponsorship?",
+            "Are you legally authorized to work in the US without sponsorship?",
+            "Are you legally authorized to work in the US (No Sponsorship)?",
+        ]
+        for label in variants:
+            schema = {"fields": [
+                {"key": "#q_yes", "label": label, "option_label": "Yes", "type": "radio", "group": "auth_g"},
+                {"key": "#q_no", "label": label, "option_label": "No", "type": "radio", "group": "auth_g"},
+            ]}
+            m = mapped(map_template(schema, self.facts, "greenhouse"))
+            self.assertEqual(m["#q_yes"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_yes"].get("guard"), f"Expected guard for: {label}")
+            self.assertEqual(m["#q_no"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_no"].get("guard"), f"Expected guard for: {label}")
+
+    def test_sponsorship_exclusion_branch2_phrasings(self):
+        # Branch 2: "have authorization to work"
+        variants = [
+            "Do you have authorization to work in the US without requiring sponsorship?",
+            "Do you have authorization to work in the US without sponsorship?",
+            "Do you have authorization to work in the US with no sponsorship?",
+            "Do you have authorization to work in the US (no sponsorship)?",
+            "Do you have authorization to work in the US WITHOUT REQUIRING SPONSORSHIP?",
+        ]
+        for label in variants:
+            schema = {"fields": [
+                {"key": "#q_yes", "label": label, "option_label": "Yes", "type": "radio", "group": "auth_g"},
+                {"key": "#q_no", "label": label, "option_label": "No", "type": "radio", "group": "auth_g"},
+            ]}
+            m = mapped(map_template(schema, self.facts, "greenhouse"))
+            self.assertEqual(m["#q_yes"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_yes"].get("guard"), f"Expected guard for: {label}")
+            self.assertEqual(m["#q_no"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_no"].get("guard"), f"Expected guard for: {label}")
+
+    def test_sponsorship_exclusion_prefix_phrasings(self):
+        # Exclusion phrasing appearing before authorization phrase
+        variants = [
+            "Without sponsorship, are you authorized to work in the US?",
+            "Without requiring sponsorship, do you have authorization to work in the US?",
+            "With no sponsorship, are you authorized to work in the US?",
+        ]
+        for label in variants:
+            schema = {"fields": [
+                {"key": "#q_yes", "label": label, "option_label": "Yes", "type": "radio", "group": "auth_g"},
+                {"key": "#q_no", "label": label, "option_label": "No", "type": "radio", "group": "auth_g"},
+            ]}
+            m = mapped(map_template(schema, self.facts, "greenhouse"))
+            self.assertEqual(m["#q_yes"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_yes"].get("guard"), f"Expected guard for: {label}")
 
     def test_compound_consent_question_maps_to_skip(self):
         # Safety invariant: compound consent questions (combining work-auth

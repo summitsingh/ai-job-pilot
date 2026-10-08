@@ -60,6 +60,35 @@ ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
                         re.IGNORECASE)
 LEGAL_CONSENT_RE = ACK_BAD_RE
 
+# Sponsorship-exclusion phrasing: applicants who require visa sponsorship must
+# NEVER answer "Yes" to questions asking if they are authorized to work WITHOUT
+# sponsorship. Phrasings must be guarded and skipped.
+SPONSORSHIP_EXCLUSION_PHRASES = (
+    "without sponsorship",
+    "without requiring sponsorship",
+    "no sponsorship",
+)
+
+SPONSORSHIP_EXCLUSION_RE = re.compile(
+    r"without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship",
+    re.IGNORECASE,
+)
+
+
+def sponsorship_excluded(label):
+    """Return True for labels containing sponsorship-exclusion phrasing.
+
+    Covers 'without sponsorship', 'without requiring sponsorship', and
+    'no sponsorship' (case-insensitive).
+    """
+    if not label:
+        return False
+    lower = str(label).lower()
+    if any(p in lower for p in SPONSORSHIP_EXCLUSION_PHRASES):
+        return True
+    return bool(SPONSORSHIP_EXCLUSION_RE.search(lower))
+
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from map import (GUARD_RE, apply_work_auth_overrides,
                  apply_prev_employed_override, dedupe_source_checkboxes,
@@ -261,6 +290,8 @@ def r_work_eligible(f, facts, ats):
     # "Legally eligible to work" -> Yes (facts work_authorization).
     blob = label_blob(f)
     if ACK_BAD_RE.search(blob):
+        return None
+    if sponsorship_excluded(blob):
         return None
     return ("opt", ["Yes"], "work-eligible-yes")
 
@@ -466,9 +497,11 @@ def r_verify_identity(f, facts, ats):
 
 def r_authorized_yes(f, facts, ats):
     # "Legally authorized to work" -> Yes (facts work_authorization).
-    # Excludes "without sponsorship" phrasing (handled by sponsorship).
+    # Excludes "without sponsorship" phrasing variants (handled by sponsorship or guarded).
     blob = label_blob(f)
     if ACK_BAD_RE.search(blob):
+        return None
+    if sponsorship_excluded(blob):
         return None
     return ("opt", ["Yes"], "work-auth-authorized-yes")
 
@@ -710,10 +743,10 @@ PATTERNS = [
      re.compile(r"verification of your (identity|identify) upon hire|verify.*identity", re.I),
      r_verify_identity, None),
     # "legally authorized to work" (Ashby yes/no buttons, radio groups) ->
-    # Yes per facts. Excludes "without sponsorship" phrasing.
+    # Yes per facts. Excludes "without sponsorship" phrasing variants.
     ("workauth-authorized",
-     re.compile(r"(legally )?authorized to work(?!.*without sponsorship)|"
-                r"have authorization to work", re.I),
+     re.compile(r"(?:(legally )?authorized to work|have authorization to work)"
+                r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))", re.I),
      r_authorized_yes, None),
     # currently living in the country -> Yes
     ("currently-live-us",
@@ -858,9 +891,10 @@ def map_template(schema, facts, ats="unknown"):
         r"via sms|sms.*application|message and data rates", re.IGNORECASE)
     # "Legally authorized to work" has a deterministic facts-driven answer
     # (Yes); exempt it from guard so the workauth-authorized pattern
-    # answers it. Keep guarding the "without sponsorship" variant.
+    # answers it. Keep guarding the "without sponsorship" variants.
     AUTHORIZED_YES_GUARD_EXC = re.compile(
-        r"legally authorized to work(?!.*without sponsorship)|have authorization to work",
+        r"(?:(legally )?authorized to work|have authorization to work)"
+        r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))",
         re.IGNORECASE)
     # Privacy-ack checkboxes have a deterministic answer (acknowledge);
     # exempt so the privacy-ack-check pattern answers them. Legal-weight
@@ -874,11 +908,14 @@ def map_template(schema, facts, ats="unknown"):
             add(f["key"], "skip", "", guard=True)
             continue
         if GUARD_RE.search(blob):
+            if sponsorship_excluded(blob):
+                add(f["key"], "skip", "", guard=True)
+                continue
             if SPONSORSHIP_OPT_GUARD_EXC.search(blob):
                 continue  # handled by the workauth-sponsorship pattern
             if SMS_CONSENT_GUARD_EXC.search(blob):
                 continue  # handled by the sms-consent pattern (Opt-Out)
-            if AUTHORIZED_YES_GUARD_EXC.search(blob):
+            if AUTHORIZED_YES_GUARD_EXC.search(blob) and not sponsorship_excluded(blob):
                 continue  # handled by the workauth-authorized pattern (Yes)
             if PRIVACY_ACK_GUARD_EXC.search(blob):
                 continue  # handled by the privacy-ack-check pattern
