@@ -309,7 +309,7 @@ A comprehensive audit was performed across:
   - In `test_offline.py`, test data uses generic snippets (`"I build ML systems."`).
   - No personal addresses, phone numbers, school names, or employers from the maintainer or private harness were introduced in these commits.
 - **Historical Reference:**
-  An earlier phone number (`***REMOVED***`) referenced in historical audit documentation (`docs/audits/REPORT-claude-2026-10-05.md`) was previously sanitized from code in commit `fefa7e3` and does not exist in active source code.
+  An earlier phone number (`[REDACTED]`) referenced in historical audit documentation (`docs/audits/REPORT-claude-2026-10-05.md`) was previously sanitized from code in commit `fefa7e3` and does not exist in active source code.
 
 ---
 
