@@ -4,6 +4,15 @@ facts.json
 .env.*
 !.env.example
 applications.jsonl
+applications-log.json
+applications-log.csv
+applied.json
+applied-applications.csv
+application-progress.json
+application-progress.csv
+application-progress-unmatched.json
+google_token.json
+google_client_secret.json
 queue.json
 claims.jsonl
 scoreboard.json
