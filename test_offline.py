@@ -142,6 +142,42 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(m["#ab"]["action"], "skip")
         self.assertTrue(m["#ab"].get("guard"))
 
+    def test_privacy_ack_with_attestation_stays_guarded(self):
+        schema = {"fields": [
+            {"key": "#att", "label": "I attest that I have read the privacy notice",
+             "type": "checkbox", "option_label": "I acknowledge"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#att"]["action"], "skip")
+        self.assertTrue(m["#att"].get("guard"))
+
+    def test_apply_acknowledge_override_refuses_attestation_and_certification(self):
+        from map import apply_acknowledge_override
+        schema = {"fields": [
+            {"key": "#attest", "label": "I attest that the above is true and correct",
+             "type": "checkbox", "option_label": "Acknowledge/Confirm"},
+            {"key": "#certif", "label": "Certification of truthful information",
+             "type": "checkbox", "option_label": "Acknowledge/Confirm"},
+            {"key": "#clean", "label": "Privacy Policy Acknowledgement",
+             "type": "checkbox", "option_label": "Acknowledge/Confirm"},
+        ]}
+        mapped_in = [
+            {"field": "#attest", "action": "skip", "value": "", "guard": "human-review"},
+            {"field": "#certif", "action": "skip", "value": "", "guard": "human-review"},
+            {"field": "#clean", "action": "skip", "value": "", "guard": "human-review"},
+        ]
+        out = {e["field"]: e for e in apply_acknowledge_override(mapped_in, schema)}
+        # Attestation and certification stay skipped for human review
+        self.assertEqual(out["#attest"]["action"], "skip")
+        self.assertEqual(out["#attest"].get("guard"), "human-review")
+        self.assertEqual(out["#certif"]["action"], "skip")
+        self.assertEqual(out["#certif"].get("guard"), "human-review")
+        # Benign privacy acknowledgment is auto-clicked and guard cleared
+        self.assertEqual(out["#clean"]["action"], "click")
+        self.assertEqual(out["#clean"]["value"], "Acknowledge/Confirm")
+        self.assertEqual(out["#clean"]["note"], "privacy-ack")
+        self.assertNotIn("guard", out["#clean"])
+
     def test_edu_dates_from_facts(self):
         schema = {"fields": [
             {"key": "#sm", "label": "Start Month", "type": "select",

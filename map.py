@@ -600,9 +600,7 @@ def apply_work_auth_select_overrides(mapped, schema):
 # "Acknowledge/Confirm" and the label carries no arbitration, background
 # check, drug test, or assessment language.
 ACK_RE = re.compile(r"^acknowledge/confirm$", re.IGNORECASE)
-ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
-                        r"criminal|credit.?check|security.?clearance",
-                        re.IGNORECASE)
+from templates import ACK_BAD_RE
 
 
 def apply_acknowledge_override(mapped, schema):

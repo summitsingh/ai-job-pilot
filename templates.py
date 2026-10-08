@@ -50,6 +50,15 @@ import os
 import re
 import sys
 
+# Privacy-ack safety: legal-weight language must NEVER be auto-acknowledged.
+# Privacy/data-processing acknowledgements are fine; arbitration, background
+# checks, drug tests, assessments, certifications, and attestations always stop
+# for human review.
+ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
+                        r"criminal|credit.?check|security.?clearance|"
+                        r"true and correct|certif|attest",
+                        re.IGNORECASE)
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from map import (GUARD_RE, apply_work_auth_overrides,
                  apply_prev_employed_override, dedupe_source_checkboxes,
@@ -455,16 +464,6 @@ def r_authorized_yes(f, facts, ats):
     # "Legally authorized to work" -> Yes (facts work_authorization).
     # Excludes "without sponsorship" phrasing (handled by sponsorship).
     return ("opt", ["Yes"], "work-auth-authorized-yes")
-
-
-# Privacy-ack safety: legal-weight language must NEVER be auto-acknowledged.
-# Privacy/data-processing acknowledgements are fine; arbitration, background
-# checks, drug tests, assessments, and security clearances always stop for
-# human review.
-ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
-                        r"criminal|credit.?check|security.?clearance|"
-                        r"true and correct|certif",
-                        re.IGNORECASE)
 
 
 def r_privacy_ack_select(f, facts, ats):
