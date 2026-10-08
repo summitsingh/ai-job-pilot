@@ -208,6 +208,29 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(out["#clean"]["note"], "privacy-ack")
         self.assertNotIn("guard", out["#clean"])
 
+    def test_apply_work_auth_select_overrides_rejects_country_visa(self):
+        from map import apply_work_auth_select_overrides
+        # options ["Yes", "Yes, Germany visa", "No"] with a generic work-auth question
+        schema = {"fields": [
+            {"key": "#s1", "label": "Will you now or in the future require sponsorship?",
+             "type": "select", "options": ["Yes", "Yes, Germany visa", "No"]},
+            {"key": "#s2", "label": "Will you require sponsorship for employment visa status?",
+             "type": "custom-select", "options": ["Yes, Germany visa", "No"]},
+        ]}
+        mapped_in = [
+            {"field": "#s1", "action": "skip", "value": ""},
+            {"field": "#s2", "action": "select", "value": "Yes, Germany visa"},
+        ]
+        out = {e["field"]: e for e in apply_work_auth_select_overrides(mapped_in, schema)}
+        # #s1 has safe "Yes" -> selects "Yes", never "Yes, Germany visa"
+        self.assertEqual(out["#s1"]["action"], "select")
+        self.assertEqual(out["#s1"]["value"], "Yes")
+
+        # #s2 has only unsafe "Yes, Germany visa" -> must map to skip
+        self.assertEqual(out["#s2"]["action"], "skip")
+        self.assertEqual(out["#s2"]["value"], "")
+
+
     def test_edu_dates_from_facts(self):
         schema = {"fields": [
             {"key": "#sm", "label": "Start Month", "type": "select",

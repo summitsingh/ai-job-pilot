@@ -559,6 +559,7 @@ def apply_work_auth_select_overrides(mapped, schema):
     uses custom dropdowns for sponsorship questions). For each select whose
     label matches a known work-auth pattern, choose the option matching the
     facts-driven answer."""
+    from hard_patterns import is_country_visa_option
     by_key = {f["key"]: f for f in schema.get("fields", [])}
     seen = {e["field"] for e in mapped}
     for f in schema.get("fields", []):
@@ -570,30 +571,47 @@ def apply_work_auth_select_overrides(mapped, schema):
             continue
         want_opt, note = override
         opts = [str(o) for o in (f.get("options") or [])]
-        # pick the option that is exactly the want, else starts with it
+        # pick the option that is exactly the want, else starts with it,
+        # refusing any option naming a specific country/visa.
         pick = None
         for o in opts:
+            if is_country_visa_option(o):
+                continue
             if o.strip().lower() == want_opt.lower():
                 pick = o
                 break
         if not pick:
             for o in opts:
+                if is_country_visa_option(o):
+                    continue
                 if o.strip().lower().startswith(want_opt.lower()):
                     pick = o
                     break
-        if not pick:
-            continue
         key = f["key"]
-        if key in seen:
-            for e in mapped:
-                if e["field"] == key:
-                    e["action"] = "select"
-                    e["value"] = pick
-                    e["note"] = note
-                    e.pop("guard", None)
+        if pick:
+            if key in seen:
+                for e in mapped:
+                    if e["field"] == key:
+                        e["action"] = "select"
+                        e["value"] = pick
+                        e["note"] = note
+                        e.pop("guard", None)
+            else:
+                mapped.append({"field": key, "action": "select",
+                               "value": pick, "note": note})
+                seen.add(key)
         else:
-            mapped.append({"field": key, "action": "select",
-                           "value": pick, "note": note})
+            # If no safe option exists, the field must map to skip
+            if key in seen:
+                for e in mapped:
+                    if e["field"] == key:
+                        e["action"] = "skip"
+                        e["value"] = ""
+                        e["note"] = note + "-unsafe-or-missing"
+            else:
+                mapped.append({"field": key, "action": "skip",
+                               "value": "", "note": note + "-unsafe-or-missing"})
+                seen.add(key)
     return mapped
 
 
