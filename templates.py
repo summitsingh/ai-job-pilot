@@ -58,6 +58,7 @@ ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
                         r"criminal|credit.?check|security.?clearance|"
                         r"true and correct|certif|attest",
                         re.IGNORECASE)
+LEGAL_CONSENT_RE = ACK_BAD_RE
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from map import (GUARD_RE, apply_work_auth_overrides,
@@ -258,6 +259,9 @@ def r_prev_employed(f, facts, ats):
 
 def r_work_eligible(f, facts, ats):
     # "Legally eligible to work" -> Yes (facts work_authorization).
+    blob = label_blob(f)
+    if ACK_BAD_RE.search(blob):
+        return None
     return ("opt", ["Yes"], "work-eligible-yes")
 
 
@@ -463,6 +467,9 @@ def r_verify_identity(f, facts, ats):
 def r_authorized_yes(f, facts, ats):
     # "Legally authorized to work" -> Yes (facts work_authorization).
     # Excludes "without sponsorship" phrasing (handled by sponsorship).
+    blob = label_blob(f)
+    if ACK_BAD_RE.search(blob):
+        return None
     return ("opt", ["Yes"], "work-auth-authorized-yes")
 
 
@@ -863,6 +870,9 @@ def map_template(schema, facts, ats="unknown"):
         re.IGNORECASE)
     for f in fields:
         blob = label_blob(f)
+        if ACK_BAD_RE.search(blob):
+            add(f["key"], "skip", "", guard=True)
+            continue
         if GUARD_RE.search(blob):
             if SPONSORSHIP_OPT_GUARD_EXC.search(blob):
                 continue  # handled by the workauth-sponsorship pattern
@@ -870,7 +880,7 @@ def map_template(schema, facts, ats="unknown"):
                 continue  # handled by the sms-consent pattern (Opt-Out)
             if AUTHORIZED_YES_GUARD_EXC.search(blob):
                 continue  # handled by the workauth-authorized pattern (Yes)
-            if PRIVACY_ACK_GUARD_EXC.search(blob) and not ACK_BAD_RE.search(blob):
+            if PRIVACY_ACK_GUARD_EXC.search(blob):
                 continue  # handled by the privacy-ack-check pattern
             add(f["key"], "skip", "", guard=True)
 
@@ -880,6 +890,11 @@ def map_template(schema, facts, ats="unknown"):
         gid = group_id(f)
         groups.setdefault(gid, []).append(f)
     for gid, gfields in groups.items():
+        if any(f["key"] in entries and entries[f["key"]].get("guard") for f in gfields):
+            for gf in gfields:
+                if gf["key"] not in entries:
+                    add(gf["key"], "skip", "", guard=True)
+            continue
         if all(f["key"] in entries for f in gfields):
             continue
         kind, _ = gid

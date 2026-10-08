@@ -124,6 +124,36 @@ class TestMapTemplate(unittest.TestCase):
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#we"]["action"], "select")
 
+    def test_pure_work_auth_radio_answered_yes(self):
+        schema = {"fields": [
+            {"key": "#auth_yes",
+             "label": "Are you legally authorized to work in the US?",
+             "option_label": "Yes", "type": "radio", "group": "auth_q"},
+            {"key": "#auth_no",
+             "label": "Are you legally authorized to work in the US?",
+             "option_label": "No", "type": "radio", "group": "auth_q"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#auth_yes"]["action"], "click")
+        self.assertEqual(m["#auth_yes"]["value"], "Yes")
+
+    def test_compound_consent_question_maps_to_skip(self):
+        # Safety invariant: compound consent questions (combining work-auth
+        # and legal consent like background check) must NEVER be auto-answered Yes.
+        schema = {"fields": [
+            {"key": "#q_yes",
+             "label": "Are you legally authorized to work and do you consent to a background check?",
+             "option_label": "Yes", "type": "radio", "group": "compound_q"},
+            {"key": "#q_no",
+             "label": "Are you legally authorized to work and do you consent to a background check?",
+             "option_label": "No", "type": "radio", "group": "compound_q"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#q_yes"]["action"], "skip")
+        self.assertTrue(m["#q_yes"].get("guard"))
+        self.assertEqual(m["#q_no"]["action"], "skip")
+        self.assertTrue(m["#q_no"].get("guard"))
+
     def test_privacy_ack_select_answered(self):
         schema = {"fields": [
             {"key": "#pa", "label": "Privacy Notice Acknowledgement",

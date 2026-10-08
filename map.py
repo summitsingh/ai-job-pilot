@@ -126,8 +126,11 @@ WORK_AUTH_ANSWERS = [
 def work_auth_override(field):
     """Return (option_label_to_click, note) for standard work-auth questions,
     or None if the question doesn't match a known pattern."""
+    from templates import ACK_BAD_RE
     label = (field.get("label") or "").lower()
     if "without sponsorship" in label or "without requiring sponsorship" in label:
+        return None
+    if ACK_BAD_RE.search(label):
         return None
     for pat, answer, note in WORK_AUTH_ANSWERS:
         if pat.search(label):
