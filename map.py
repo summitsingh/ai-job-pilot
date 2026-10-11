@@ -62,7 +62,8 @@ Rules:
     flexible start): answer per the facts willing_hybrid, willing_in_office,
     willing_relocate, willing_travel, willing_start_date_flexible (all true):
     click/select "Yes". "When can you start a new role?" / start-date fields:
-    the facts have no start date, so skip (never invent a date).
+    use facts['start_date'] only when explicitly present; otherwise skip
+    (never invent a date).
 14. Ashby yes/no questions appear as PAIRED button fields (keys ending
     [data-option="yes"] and [data-option="no"] with the same question label):
     use action "click" on the correct option's key ONLY, never both.

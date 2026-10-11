@@ -12,19 +12,24 @@ def audit_form(initial, live, mapping, mismatched, invalid=()):
     mapped = {f['field']: f for f in mapping.get('map', [])}
     blockers = []
     for field in live.get('fields', []):
+        key = field['key']
+        answer = mapped.get(key, {})
+        if answer.get('guard'):
+            blockers.append('human-review:' + key)
+            # Preserve the fail-closed human-review blocker without also
+            # reporting the intentional skip as an unanswered-field error.
+            continue
         if not field.get('required'):
             continue
-        key = field['key']
         if key not in original:
             blockers.append('new-required:' + key)
             continue
-        action = mapped.get(key, {}).get('action')
-        if action and action != 'skip':
-            continue
+        # A mapped answer is a proposal; only the live field proves completion.
         satisfied = (bool(field.get('checked')) if field.get('type') in ('checkbox', 'radio')
                      else bool(str(field.get('value') or '').strip()))
         if not satisfied:
             blockers.append('unanswered-required:' + key)
-    blockers.extend('mismatch:' + key for key in mismatched)
+    required_keys = {f['key'] for f in live.get('fields', []) if f.get('required')}
+    blockers.extend('mismatch:' + key for key in mismatched if key in required_keys)
     blockers.extend('invalid:' + key for key in invalid)
     return list(dict.fromkeys(blockers))

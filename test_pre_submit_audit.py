@@ -11,7 +11,12 @@ class PreSubmitAuditTests(unittest.TestCase):
     def test_skipped_required_guard_blocks(self):
         schema = {'fields': [{'key': '#attestation', 'required': True, 'value': ''}]}
         mapping = {'map': [{'field': '#attestation', 'action': 'skip', 'guard': 'human-review'}]}
-        self.assertIn('unanswered-required:#attestation', audit_form(schema, schema, mapping, []))
+        self.assertIn('human-review:#attestation', audit_form(schema, schema, mapping, []))
+        self.assertNotIn('unanswered-required:#attestation', audit_form(schema, schema, mapping, []))
+
+    def test_optional_field_mismatch_does_not_block(self):
+        schema = {'fields': [{'key': '#gender', 'required': False, 'value': ''}]}
+        self.assertEqual(audit_form(schema, schema, {'map': []}, ['#gender']), [])
 
     def test_unchecked_required_checkbox_blocks_even_if_value_is_on(self):
         schema = {'fields': [{'key': '#consent', 'type': 'checkbox', 'required': True, 'value': 'on', 'checked': False}]}

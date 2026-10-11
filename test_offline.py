@@ -364,6 +364,16 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(out["#s2"]["value"], "")
 
 
+    def test_start_date_uses_only_explicit_fact(self):
+        schema = {"fields": [
+            {"key": "#start", "label": "When can you start?", "type": "text"},
+        ]}
+        result = mapped(map_template(schema, self.facts, "greenhouse"))["#start"]
+        self.assertEqual(result["action"], "skip")
+        facts = dict(self.facts, start_date="October 20")
+        result = mapped(map_template(schema, facts, "greenhouse"))["#start"]
+        self.assertEqual((result["action"], result["value"]), ("fill", "October 20"))
+
     def test_edu_dates_from_facts(self):
         schema = {"fields": [
             {"key": "#sm", "label": "Start Month", "type": "select",

@@ -574,6 +574,13 @@ def r_sponsorship(f, facts, ats):
             "work-auth-sponsorship")
 
 
+def r_start_date(f, facts, ats):
+    value = facts.get("start_date")
+    if not value:
+        return None
+    return ("do", "fill", str(value), "start-date")
+
+
 def r_verify_identity(f, facts, ats):
     # "Can you provide verification of your identity upon hire?" -> Yes.
     return ("opt", ["Yes"], "identity-verification-yes")
@@ -790,7 +797,7 @@ PATTERNS = [
     ("willing-start-flex", re.compile(r"flexible.*start|start.*flexible|"
                                       r"available.*start", re.I), r_yes, None),
     ("start-date", re.compile(r"when can you start|start date", re.I),
-     r_skip, None),
+     r_start_date, {"text", "textarea", "input"}),
     # salary
     ("salary-text", re.compile(r"salary|compensation|pay expectation|"
                                r"desired.*(pay|salary)", re.I), r_salary_text,
