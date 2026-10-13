@@ -149,6 +149,9 @@ class SweepTest(unittest.TestCase):
         self.assertFalse(title_ok("Engineering Manager"))
         self.assertFalse(title_ok("Senior Backend Engineer Intern"))
 
+    def test_title_without_seniority_label_is_accepted(self):
+        self.assertTrue(title_ok("Software Engineer"))
+
     def test_location_ok(self):
         ok, loc = location_ok("Austin, TX")
         self.assertTrue(ok)
