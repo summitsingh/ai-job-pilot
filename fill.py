@@ -4,9 +4,11 @@
 Usage: fill.py --schema schema.json --map map.json --port 9226 [--no-submit]
   [--shot /tmp/jobpilot/fill.png] [--out fill-result.json]
 
-Strategy (all React-proof, from proven sweeps):
-- text-like "fill" actions: ONE batched JS pass (native value setter +
-  input/change events), zero per-field round trips.
+Strategy:
+- text-like "fill" actions: one batched native value-setter pass with
+  input/change events. A live value mismatch on a supported text control
+  triggers a trusted CDP focus/select + Input.insertText + Tab fallback.
+  Final readback and the independent form audit still gate submission.
 - "select"/"custom-select": react-select widgets go through
   `fill_react_select` (container click, menu pick, self-verify);
   other custom comboboxes: scroll, real click, type exact option, Enter.
@@ -494,6 +496,46 @@ def do_select(port, key, value, field_type="select", is_location=False):
     return True, ""
 
 
+def native_replace_js(key):
+    """Focus a text control and select its current contents for native typing.
+
+    JavaScript value setters can leave React's internal state stale. Selecting
+    text here, then using CDP's trusted Input.insertText + Tab, updates the
+    framework through real keyboard input instead of another property write.
+    """
+    return ("(() => { const el=document.querySelector(" + json.dumps(key) +
+            "); if(!el) return {ok:false,why:'not-found'}; "
+            "try { el.scrollIntoView({block:'center',behavior:'instant'}); "
+            "el.focus(); if(typeof el.select!=='function') "
+            "return {ok:false,why:'not-selectable'}; el.select(); "
+            "return {ok:true}; } catch(e) { return {ok:false,why:String(e)}; } })()")
+
+
+def fill_text_native(port, key, value):
+    """Replace a text control using trusted CDP typing and blur it with Tab."""
+    try:
+        selected = cdp_ok(port, "evalb64", b64(native_replace_js(key)),
+                          timeout=60).get("result", {})
+    except Exception as e:
+        return False, f"native-select:{type(e).__name__}"
+    if not isinstance(selected, dict) or not selected.get("ok"):
+        return False, (selected.get("why", "native-select-failed")
+                       if isinstance(selected, dict) else "native-select-failed")
+    try:
+        typed = cdp(port, "ftype", b64(key), b64(value))
+    except Exception as e:
+        return False, f"native-type:{type(e).__name__}"
+    if not typed.get("ok"):
+        return False, typed.get("error", "native-type-failed")
+    try:
+        blurred = cdp(port, "fkey", "Tab")
+    except Exception as e:
+        return False, f"native-blur:{type(e).__name__}"
+    if not blurred.get("ok"):
+        return False, blurred.get("error", "native-blur-failed")
+    return True, ""
+
+
 def matches(expected, actual):
     e, a = (expected or "").strip().lower(), (actual or "").strip().lower()
     if not e:
@@ -505,6 +547,45 @@ def matches(expected, actual):
     if ed and ad and (ed == ad or ed in ad or ad in ed):
         return True
     return e == a or e in a or a in e
+
+
+TRUSTED_TEXT_TYPES = {"text", "email", "tel", "url", "textarea"}
+
+
+def retry_mismatched_text(port, text_items, by_key):
+    """Retry only text controls whose live DOM value missed the mapped value."""
+    if not text_items:
+        return {}
+    rb_items = [{"key": item["key"],
+                 "type": by_key.get(item["key"], {}).get("type", ""),
+                 "option_label": ""} for item in text_items]
+    try:
+        live = cdp_ok(port, "evalb64",
+                      b64(readback_js(b64(json.dumps(rb_items)))),
+                      timeout=120).get("result", [])
+    except Exception:
+        return {}
+    if not isinstance(live, list):
+        return {}
+    live_by_key = {item.get("key"): item for item in live
+                   if isinstance(item, dict)}
+    retried = {}
+    for item in text_items:
+        state = live_by_key.get(item["key"], {})
+        if not state.get("found"):
+            continue
+        if matches(item.get("value", ""), state.get("value", "")):
+            continue
+        field_type = (by_key.get(item["key"], {}).get("type") or "").lower()
+        if field_type not in TRUSTED_TEXT_TYPES:
+            continue
+        ok, error = fill_text_native(port, item["key"], item.get("value", ""))
+        retried[item["key"]] = {
+            "ok": ok,
+            "note": ("trusted-input-fallback" if ok else
+                     "trusted-input-fallback-failed:" + str(error)[:120]),
+        }
+    return retried
 
 
 def apply_fill(schema, fmap, port, no_submit, shot_path):
@@ -527,6 +608,15 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                               "expected": it["value"],
                               "applied": bool(res.get("ok")),
                               "note": res.get("why", "")})
+        # A successful property-setter call is not proof that a controlled
+        # framework accepted the value. Retry only live DOM mismatches using
+        # trusted keyboard input, then rely on the final readback/audit below.
+        native_retries = retry_mismatched_text(port, text_items, by_key)
+        for field_result in per_field:
+            retry = native_retries.get(field_result["field"])
+            if retry:
+                field_result["applied"] = retry["ok"]
+                field_result["note"] = retry["note"]
 
     # 2) selects + locations (per-field: click, type, Enter)
     for m in actions:

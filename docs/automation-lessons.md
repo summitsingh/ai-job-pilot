@@ -2,7 +2,7 @@
 
 This anonymized engineering note describes failure modes, corrective patterns, and remaining limitations observed in an operational deployment. It deliberately omits candidate identities, employers applied to, posting IDs, application outcomes, immigration details, personal answers, consent decisions, machine addresses, screenshots, and raw execution logs.
 
-**Scope:** this change publishes documentation, not a synchronization of the private deployment's code or data. A fix described below must not be assumed present in this repository until its implementation and tests are checked. The operational policy changes described here are instructions, not independently enforced scheduler guarantees.
+**Scope:** this release adds a narrowly scoped, regression-tested trusted-input fallback for text fields whose live DOM value does not match the mapped value, plus this anonymized lesson. It does not synchronize private deployment code or data. Operational policies described here are documentation, not independently enforced scheduler guarantees.
 
 ## 1. Read committed dropdown selections, not search text
 
@@ -89,6 +89,12 @@ A successful scheduler wrapper, a saved file, or a passing unit suite is not an 
 - Exclude answer stores, resumes, private consent records, application logs, browser profiles, cookies, raw HTML, screenshots, terminal transcripts, and credential files.
 - Scan new content and the staged diff for known personal tokens, contact details, home paths, private IPs, and secrets.
 - Check commit author metadata: prefer the repository account's noreply address over a private email.
-- Use a dedicated documentation branch and reviewable pull request; do not automatically merge unrelated changes.
+- Use a dedicated topic branch and reviewable pull request; merge only this scoped change to the requested base.
 - Read the published files and pull request back from the remote before reporting success.
 - Synthetic examples must be clearly labeled synthetic; never present them as captured operational evidence.
+
+## 9. React-controlled text fields need trusted input when readback mismatches
+
+A successful JavaScript value-setter call is not proof that a controlled form accepted the text. Compare the mapped value with a fresh live DOM readback. For supported text controls with a mismatch, focus and select the existing text, replace it with trusted CDP input, and blur with Tab. Then perform the normal final readback and independent required-field audit; the fallback itself never authorizes submission.
+
+The repository regression tests cover mismatch detection, the trusted-input sequence, and final readback. They do not establish cross-provider browser compatibility. If the live value matches but provider validation still rejects it, leave the form blocked and investigate provider state rather than claiming this fallback resolved it. Unsupported input types remain fail-closed.
