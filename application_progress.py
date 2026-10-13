@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from email.utils import parseaddr
 from pathlib import Path
 
 COLUMNS = ('message_id', 'thread_id', 'date', 'company', 'title', 'job_url',
@@ -49,7 +50,9 @@ def eligible(app):
 def match_job(message, apps):
     # Only match explicit company names in subject or sender display-name.
     # Never guess based on a shared email domain, recruiter, or generic subject.
-    hay = normalize((message.get('subject') or '') + ' ' + (message.get('from') or ''))
+    display_name, sender_address = parseaddr(str(message.get('from') or ''))
+    sender_name = display_name or (sender_address if '@' not in sender_address else '')
+    hay = normalize((message.get('subject') or '') + ' ' + sender_name)
     hits = [a for a in apps if eligible(a) and len(normalize(a.get('Company'))) >= 4
             and re.search(r'(?<!\w)' + re.escape(normalize(a['Company'])) + r'(?!\w)', hay)]
     if len(hits) == 1:

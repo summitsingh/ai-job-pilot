@@ -22,6 +22,15 @@ class ProgressTests(unittest.TestCase):
         self.assertIsNotNone(matched)
         self.assertEqual(matched['Job URL'], 'https://example.com/1')
 
+    def test_sender_email_domain_alone_does_not_match_company(self):
+        msg = {'subject': 'Application update', 'from': 'recruiting@acme.example'}
+        self.assertIsNone(match_job(msg, [self.apps[0]]))
+
+    def test_sender_display_name_can_match_company(self):
+        msg = {'subject': 'Application update',
+               'from': 'Acme Recruiting <jobs@example.test>'}
+        self.assertIs(match_job(msg, [self.apps[0]]), self.apps[0])
+
     def test_blocked_app_and_generic_emails_do_not_progress(self):
         msgs = [{'id': 'a', 'subject': 'Beta Labs interview invitation'},
                 {'id': 'b', 'subject': 'Acme application update', 'snippet': ''}]
