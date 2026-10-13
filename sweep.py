@@ -5,8 +5,8 @@ Discovery (fetching postings) is source-specific and intentionally NOT in
 this repo. This module takes a JSON list of raw postings, one per source,
 and applies the standard jobpilot filters:
 
-  - title: senior-level (senior|sr|staff|lead|principal) AND backend /
-    platform / infra / AI / ML role; rejects frontend, mobile, junior,
+  - title: backend / platform / infra / AI / ML role; the title need not
+    include an explicit seniority label; rejects frontend, mobile, junior,
     intern, manager-track, and unrelated specialties
   - location: allowed metros or Remote US; rejects non-US locations
   - sponsorship: rejects postings whose text rules out visa sponsorship
@@ -42,7 +42,6 @@ from job_queue import norm_url
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-TITLE_LEVEL = re.compile(r"\b(senior|sr\.?|staff|lead|principal)\b", re.I)
 TITLE_ROLE = re.compile(
     r"(software engineer|software developer|backend|platform|"
     r"infrastructure|infra|devops|sre|systems engineer|distributed|"
@@ -88,8 +87,7 @@ SPONSOR_NO = [
 
 def title_ok(title):
     tl = (title or "").lower()
-    return bool(TITLE_LEVEL.search(tl) and TITLE_ROLE.search(tl)
-                and not TITLE_NO.search(tl))
+    return bool(TITLE_ROLE.search(tl) and not TITLE_NO.search(tl))
 
 
 US_MARK = re.compile(r"united states|\busa?\b|u\.s\.|\(us\)", re.I)
