@@ -428,6 +428,49 @@ def dedupe_radio_clicks(mapped, schema):
     return mapped
 
 
+SYSTEM_FIELD_FACTS = (
+    ("_systemfield_name", "full_name", "fill"),
+    ("_systemfield_email", "email", "fill"),
+    ("_systemfield_resume", "resume_path", "upload"),
+)
+
+
+def _system_field_keys(schema):
+    """Return supported Ashby system-field keys present in the schema."""
+    result = {}
+    for field in schema.get("fields", []):
+        key = field.get("key", "")
+        folded = key.casefold()
+        for marker, fact_key, action in SYSTEM_FIELD_FACTS:
+            if marker in folded:
+                result[key] = (fact_key, action)
+                break
+    return result
+
+
+def apply_system_field_overrides(mapped, schema, facts):
+    """Use approved facts for Ashby system fields; never ask the model to guess."""
+    entries = {}
+    order = []
+    for entry in mapped:
+        key = entry.get("field")
+        if key not in entries:
+            order.append(key)
+        entries[key] = dict(entry)
+
+    for key, (fact_key, action) in _system_field_keys(schema).items():
+        value = facts.get(fact_key)
+        if isinstance(value, str) and value.strip():
+            entries[key] = {"field": key, "action": action, "value": value,
+                            "note": "system-field-override"}
+        else:
+            entries[key] = {"field": key, "action": "skip", "value": "",
+                            "note": f"missing-fact:{fact_key}"}
+        if key not in order:
+            order.append(key)
+    return [entries[key] for key in order]
+
+
 def map_fields(schema, facts, ats="unknown"):
     # Fast path: LinkedIn resume picker is mechanical, skip the model call.
     if is_resume_step(schema):
@@ -442,21 +485,31 @@ def map_fields(schema, facts, ats="unknown"):
     # (guard-skips stay skipped; the model never overrides them).
     from templates import map_template
     tmpl = map_template(schema, facts, ats)
-    candidates = list(tmpl["unmapped"]) + [
+    system_keys = _system_field_keys(schema)
+    tmpl["map"] = apply_system_field_overrides(tmpl["map"], schema, facts)
+    mapped_by_key = {entry["field"]: entry for entry in tmpl["map"]}
+    missing_system = sorted(
+        key for key in system_keys
+        if mapped_by_key.get(key, {}).get("action") == "skip")
+    tmpl["unmapped"] = [key for key in tmpl["unmapped"]
+                        if key not in system_keys] + missing_system
+    candidates = [key for key in tmpl["unmapped"] if key not in system_keys] + [
         e["field"] for e in tmpl["map"]
         if e["action"] == "skip" and not e.get("guard")
+        and e["field"] not in system_keys
         and e["field"] not in tmpl["unmapped"]]
     if not candidates:
         return tmpl
     model_mapped, model_guarded, model_seen = _map_with_model(
         schema, facts, candidates)
-    # Model answers replace template skips; template answers stand.
+    # Model answers replace template skips; system fields remain fact-only.
     skip_keys = {e["field"] for e in tmpl["map"]
-                 if e["action"] == "skip" and not e.get("guard")}
+                 if e["action"] == "skip" and not e.get("guard")
+                 and e["field"] not in system_keys}
     mapped = ([e for e in tmpl["map"] if e["field"] not in skip_keys]
               + model_mapped)
     guarded = tmpl["skipped_by_guard"] + model_guarded
-    unmapped = [k for k in candidates if k not in model_seen]
+    unmapped = [k for k in candidates if k not in model_seen] + missing_system
     mapped = dedupe_source_checkboxes(mapped, schema, facts)
     mapped = dedupe_radio_clicks(mapped, schema)
     mapped = apply_work_auth_overrides(mapped, schema)
