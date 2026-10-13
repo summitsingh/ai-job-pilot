@@ -274,7 +274,10 @@ def opt_singleton(f, wants, note):
 # ---------------------------------------------------------------------------
 
 def r_full_name(f, facts, ats):
-    return ("do", "fill", facts["full_name"], "identity")
+    value = facts.get("full_name")
+    if not isinstance(value, str) or not value.strip():
+        return ("do", "skip", "", "missing-fact:full_name")
+    return ("do", "fill", value, "identity")
 
 
 def r_first_name(f, facts, ats):
@@ -286,7 +289,10 @@ def r_last_name(f, facts, ats):
 
 
 def r_email(f, facts, ats):
-    return ("do", "fill", facts["email"], "identity")
+    value = facts.get("email")
+    if not isinstance(value, str) or not value.strip():
+        return ("do", "skip", "", "missing-fact:email")
+    return ("do", "fill", value, "identity")
 
 
 def r_phone(f, facts, ats):
@@ -344,7 +350,10 @@ def r_website(f, facts, ats):
 
 
 def r_resume(f, facts, ats):
-    return ("do", "upload", facts["resume_path"], "identity")
+    value = facts.get("resume_path")
+    if not isinstance(value, str) or not value.strip():
+        return ("do", "skip", "", "missing-fact:resume_path")
+    return ("do", "upload", value, "identity")
 
 
 def r_current_company(f, facts, ats):
