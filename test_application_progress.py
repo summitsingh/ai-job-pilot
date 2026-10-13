@@ -34,6 +34,12 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(stage_for({'subject': 'Acme interview invitation'}), 'interview')
         self.assertIsNone(stage_for({'subject': 'Acme application update'}))
 
+    def test_save_creates_missing_parent_directory(self):
+        with tempfile.TemporaryDirectory() as d:
+            prefix = Path(d) / 'private' / 'nested' / 'progress'
+            self.assertEqual(save(str(prefix), [], []), 0)
+            self.assertTrue(Path(str(prefix) + '.json').is_file())
+
     def test_save_csv_json_idempotent(self):
         msg = {'id': 'm1', 'threadId': 't1', 'date': '2026-10-01',
                'subject': 'Acme Senior Engineer interview invitation',

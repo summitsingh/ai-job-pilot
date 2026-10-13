@@ -99,6 +99,7 @@ def atomic(path, text):
 
 def save(prefix, events, unresolved):
     prefix = Path(prefix)
+    prefix.parent.mkdir(parents=True, exist_ok=True)
     with open(str(prefix) + '.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = Path(str(prefix) + '.json')
