@@ -48,6 +48,14 @@ def release_lock(port):
         pass
 
 
+def validate_mapping(schema, fmap=None):
+    """Fail closed when schema extraction or field mapping yields nothing."""
+    if not schema.get("fields", []):
+        raise RuntimeError("schema extraction returned zero fields; refusing to continue")
+    if fmap is not None and not fmap.get("map", []):
+        raise RuntimeError("mapping returned zero fields; refusing to continue")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", required=True)
@@ -70,6 +78,7 @@ def main():
         acquire_lock(a.port, a.force)
         schema = dump_schema(a.url, a.port)
         schema["ats_hint"] = a.ats
+        validate_mapping(schema)
         json.dump(schema, open(f"{wd}/schema.json", "w"), indent=1)
         result["notes"].append(f"schema: {len(schema['fields'])} fields")
 
@@ -85,6 +94,7 @@ def main():
         if os.environ.get("JOBPILOT_RESUME"):
             facts["resume_path"] = os.environ["JOBPILOT_RESUME"]
         fmap = map_fields(schema, facts, ats=a.ats)
+        validate_mapping(schema, fmap)
         json.dump(fmap, open(f"{wd}/map.json", "w"), indent=1)
         result["notes"].append(
             f"map: {len(fmap['map'])} mapped, "
