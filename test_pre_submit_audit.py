@@ -11,7 +11,12 @@ class PreSubmitAuditTests(unittest.TestCase):
     def test_skipped_required_guard_blocks(self):
         schema = {'fields': [{'key': '#attestation', 'required': True, 'value': ''}]}
         mapping = {'map': [{'field': '#attestation', 'action': 'skip', 'guard': 'human-review'}]}
-        self.assertIn('unanswered-required:#attestation', audit_form(schema, schema, mapping, []))
+        self.assertIn('human-review:#attestation', audit_form(schema, schema, mapping, []))
+        self.assertNotIn('unanswered-required:#attestation', audit_form(schema, schema, mapping, []))
+
+    def test_optional_field_mismatch_does_not_block(self):
+        schema = {'fields': [{'key': '#gender', 'required': False, 'value': ''}]}
+        self.assertEqual(audit_form(schema, schema, {'map': []}, ['#gender']), [])
 
     def test_unchecked_required_checkbox_blocks_even_if_value_is_on(self):
         schema = {'fields': [{'key': '#consent', 'type': 'checkbox', 'required': True, 'value': 'on', 'checked': False}]}
@@ -22,6 +27,12 @@ class PreSubmitAuditTests(unittest.TestCase):
         blockers = audit_form(schema, schema, {'map': [{'field': '#city', 'action': 'location', 'value': 'Example City'}]}, ['#city'], ['#city'])
         self.assertIn('mismatch:#city', blockers)
         self.assertIn('invalid:#city', blockers)
+
+    def test_optional_skip_and_filled_required_pass(self):
+        schema = {'fields': [{'key': '#cover', 'required': False}, {'key': '#city', 'required': True, 'value': 'Example City'}]}
+        mapping = {'map': [{'field': '#cover', 'action': 'skip'}, {'field': '#city', 'action': 'location', 'value': 'Example City'}]}
+        self.assertEqual(audit_form(schema, schema, mapping, []), [])
+
 
     def test_mapped_required_empty_value_blocks(self):
         schema = {'fields': [{'key': '#email', 'type': 'email', 'required': True, 'value': ''}]}
@@ -37,11 +48,6 @@ class PreSubmitAuditTests(unittest.TestCase):
         schema = {'fields': [{'key': '#arbitration', 'required': False, 'value': ''}]}
         mapping = {'map': [{'field': '#arbitration', 'action': 'skip', 'guard': 'human-review'}]}
         self.assertIn('human-review:#arbitration', audit_form(schema, schema, mapping, []))
-
-    def test_optional_skip_and_filled_required_pass(self):
-        schema = {'fields': [{'key': '#cover', 'required': False}, {'key': '#city', 'required': True, 'value': 'Example City'}]}
-        mapping = {'map': [{'field': '#cover', 'action': 'skip'}, {'field': '#city', 'action': 'location', 'value': 'Example City'}]}
-        self.assertEqual(audit_form(schema, schema, mapping, []), [])
 
 
 if __name__ == '__main__':

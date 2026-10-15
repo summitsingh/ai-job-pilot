@@ -1,0 +1,20 @@
+[
+  "test_offline.py::TestDedup::test_loads_urls",
+  "test_offline.py::TestDedup::test_missing_file_is_empty",
+  "test_offline.py::TestDedup::test_skips_bad_lines",
+  "test_offline.py::TestMapTemplate::test_identity_fill",
+  "test_offline.py::TestMapTemplate::test_phone_digits_only",
+  "test_offline.py::TestMapTemplate::test_school_select_driven_by_facts",
+  "test_offline.py::TestMapTemplate::test_sponsorship_picks_truthful_option",
+  "test_offline.py::TestMapTemplate::test_unknown_field_skipped_never_guessed",
+  "test_offline.py::TestMapTemplate::test_veteran_radio_never_invented",
+  "test_offline.py::TestMatches::test_case_insensitive",
+  "test_offline.py::TestMatches::test_digit_tolerant",
+  "test_offline.py::TestMatches::test_empty_expected_matches_anything",
+  "test_offline.py::TestMatches::test_mismatch",
+  "test_offline.py::TestMatches::test_substring",
+  "test_offline.py::TestResumeMap::test_comment_keys_ignored",
+  "test_offline.py::TestResumeMap::test_first_match_wins",
+  "test_offline.py::TestResumeMap::test_match",
+  "test_offline.py::TestResumeMap::test_no_match"
+]

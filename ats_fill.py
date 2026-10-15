@@ -22,9 +22,30 @@ from schema_dump import dump_schema
 from map import map_fields
 from fill import apply_fill
 from verify import verify
+from common import cdp_ok
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GOAL_HIDDEN = os.path.dirname(HERE)
+
+UNAVAILABLE_MARKERS = (
+    "no longer available",
+    "no longer accepting",
+    "job posting is no longer",
+    "page not found",
+    "job not found",
+    "couldn't find that",
+    "this job has expired",
+    "position has been filled",
+)
+
+
+def unavailable_posting_marker(page_text):
+    normalized = " ".join(str(page_text or "").split()).casefold()
+    return next((marker for marker in UNAVAILABLE_MARKERS if marker in normalized), None)
+
+
+class PostingUnavailableError(RuntimeError):
+    pass
 
 
 def lock_path(port):
@@ -46,6 +67,14 @@ def release_lock(port):
         os.remove(lock_path(port))
     except OSError:
         pass
+
+
+def validate_mapping(schema, fmap=None):
+    """Fail closed when schema extraction or field mapping yields nothing."""
+    if not schema.get("fields", []):
+        raise RuntimeError("schema extraction returned zero fields; refusing to continue")
+    if fmap is not None and not fmap.get("map", []):
+        raise RuntimeError("mapping returned zero fields; refusing to continue")
 
 
 def main():
@@ -70,6 +99,13 @@ def main():
         acquire_lock(a.port, a.force)
         schema = dump_schema(a.url, a.port)
         schema["ats_hint"] = a.ats
+        if not schema.get("fields"):
+            page_text = cdp_ok(a.port, "text", "3000").get("text", "")
+            marker = unavailable_posting_marker(page_text)
+            if marker:
+                result["notes"].append("schema: 0 fields")
+                raise PostingUnavailableError(marker)
+        validate_mapping(schema)
         json.dump(schema, open(f"{wd}/schema.json", "w"), indent=1)
         result["notes"].append(f"schema: {len(schema['fields'])} fields")
 
@@ -85,6 +121,7 @@ def main():
         if os.environ.get("JOBPILOT_RESUME"):
             facts["resume_path"] = os.environ["JOBPILOT_RESUME"]
         fmap = map_fields(schema, facts, ats=a.ats)
+        validate_mapping(schema, fmap)
         json.dump(fmap, open(f"{wd}/map.json", "w"), indent=1)
         result["notes"].append(
             f"map: {len(fmap['map'])} mapped, "
@@ -116,11 +153,15 @@ def main():
         else:
             result["status"] = "blocked"
             result["notes"].append("submit step did not run")
+    except PostingUnavailableError as e:
+        result["status"] = "blocked"
+        result["notes"].append(f"posting unavailable: {e}")
     except Exception as e:
         result["notes"].append(f"ERROR {type(e).__name__}: {e}")
     finally:
         release_lock(a.port)
-        json.dump(result, open(f"{wd}/result.json", "w"), indent=1)
+        with open(f"{wd}/result.json", "w") as result_file:
+            json.dump(result, result_file, indent=1)
     print(json.dumps(result, indent=1))
 
 

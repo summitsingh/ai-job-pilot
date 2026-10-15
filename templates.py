@@ -50,6 +50,45 @@ import os
 import re
 import sys
 
+# Privacy-ack safety: legal-weight language must NEVER be auto-acknowledged.
+# Privacy/data-processing acknowledgements are fine; arbitration, background
+# checks, drug tests, assessments, certifications, and attestations always stop
+# for human review.
+ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
+                        r"criminal|credit.?check|security.?clearance|"
+                        r"true and correct|certif|attest",
+                        re.IGNORECASE)
+LEGAL_CONSENT_RE = ACK_BAD_RE
+
+# Sponsorship-exclusion phrasing: applicants who require visa sponsorship must
+# NEVER answer "Yes" to questions asking if they are authorized to work WITHOUT
+# sponsorship. Phrasings must be guarded and skipped.
+SPONSORSHIP_EXCLUSION_PHRASES = (
+    "without sponsorship",
+    "without requiring sponsorship",
+    "no sponsorship",
+)
+
+SPONSORSHIP_EXCLUSION_RE = re.compile(
+    r"without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship",
+    re.IGNORECASE,
+)
+
+
+def sponsorship_excluded(label):
+    """Return True for labels containing sponsorship-exclusion phrasing.
+
+    Covers 'without sponsorship', 'without requiring sponsorship', and
+    'no sponsorship' (case-insensitive).
+    """
+    if not label:
+        return False
+    lower = str(label).lower()
+    if any(p in lower for p in SPONSORSHIP_EXCLUSION_PHRASES):
+        return True
+    return bool(SPONSORSHIP_EXCLUSION_RE.search(lower))
+
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from map import (GUARD_RE, apply_work_auth_overrides,
                  apply_prev_employed_override, dedupe_source_checkboxes,
@@ -73,6 +112,39 @@ def _load_facts():
 FACTS = _load_facts()
 
 PROVISIONAL = {"wellfound"}
+
+
+def facts_affirm_work_auth(facts):
+    """Return True only when applicant facts affirm work eligibility/authorization.
+
+    Returns False when facts are absent, empty, or negative.
+    """
+    if not facts or not isinstance(facts, dict):
+        return False
+
+    keys = ("work_authorization", "work_eligible", "legally_authorized")
+    found_any = False
+    for k in keys:
+        if k in facts and facts[k] is not None:
+            raw = facts[k]
+            if isinstance(raw, bool):
+                if not raw:
+                    return False
+                found_any = True
+                continue
+            val = str(raw).strip()
+            if not val:
+                continue
+            lower = val.lower()
+            if re.search(
+                r"^(?:no\b|none\b|false\b|n/?a\b)|"
+                r"\b(?:not\s+(?:legally\s+)?(?:authorized|eligible)|"
+                r"unauthorized|ineligible|no\s+authorization|without\s+authorization)\b",
+                lower,
+            ):
+                return False
+            found_any = True
+    return found_any
 
 # Resolver result shapes:
 #   ("do", action, value, note)  - ready-to-use action
@@ -202,7 +274,10 @@ def opt_singleton(f, wants, note):
 # ---------------------------------------------------------------------------
 
 def r_full_name(f, facts, ats):
-    return ("do", "fill", facts["full_name"], "identity")
+    value = facts.get("full_name")
+    if not isinstance(value, str) or not value.strip():
+        return ("do", "skip", "", "missing-fact:full_name")
+    return ("do", "fill", value, "identity")
 
 
 def r_first_name(f, facts, ats):
@@ -214,7 +289,10 @@ def r_last_name(f, facts, ats):
 
 
 def r_email(f, facts, ats):
-    return ("do", "fill", facts["email"], "identity")
+    value = facts.get("email")
+    if not isinstance(value, str) or not value.strip():
+        return ("do", "skip", "", "missing-fact:email")
+    return ("do", "fill", value, "identity")
 
 
 def r_phone(f, facts, ats):
@@ -248,7 +326,14 @@ def r_prev_employed(f, facts, ats):
 
 
 def r_work_eligible(f, facts, ats):
-    # "Legally eligible to work" -> Yes (facts work_authorization).
+    # "Legally eligible to work" -> Yes only when facts affirm work auth/eligibility.
+    blob = label_blob(f)
+    if ACK_BAD_RE.search(blob):
+        return None
+    if sponsorship_excluded(blob):
+        return None
+    if not facts_affirm_work_auth(facts):
+        return ("do", "skip", "", "work-eligible-no-fact")
     return ("opt", ["Yes"], "work-eligible-yes")
 
 
@@ -265,7 +350,10 @@ def r_website(f, facts, ats):
 
 
 def r_resume(f, facts, ats):
-    return ("do", "upload", facts["resume_path"], "identity")
+    value = facts.get("resume_path")
+    if not isinstance(value, str) or not value.strip():
+        return ("do", "skip", "", "missing-fact:resume_path")
+    return ("do", "upload", value, "identity")
 
 
 def r_current_company(f, facts, ats):
@@ -321,11 +409,60 @@ def r_degree(f, facts, ats):
     return ("do", "fill", "BS Computer Science", "education")
 
 
+def _extract_disciplines(facts):
+    majors = []
+
+    def _add(val):
+        if not val:
+            return
+        val = str(val).strip()
+        if val and val not in majors:
+            majors.append(val)
+
+    # Direct facts fields take precedence
+    for k in ("discipline", "major", "field_of_study"):
+        v = facts.get(k)
+        if v:
+            _add(v)
+
+    # Education entries
+    for e in facts.get("education") or []:
+        for k in ("discipline", "major", "field_of_study"):
+            v = e.get(k)
+            if v:
+                _add(v)
+        deg = str(e.get("degree", "")).strip()
+        if deg:
+            cleaned = re.sub(
+                r"^(?:(?:bachelor|master|doctor)(?:'s)?(?:\s+of\s+[a-zA-Z]+)?(?:\s+in)?|"
+                r"[bm]\.?[sa]\.?(?:\s+in)?|"
+                r"ph\.?d\.?(?:\s+in)?)\s*",
+                "",
+                deg,
+                flags=re.I,
+            ).strip()
+            if cleaned:
+                for part in re.split(r"[,&/]", cleaned):
+                    _add(part.strip())
+            for part in re.split(r"[,&/]", deg):
+                _add(part.strip())
+
+    return majors
+
+
+def r_discipline(f, facts, ats):
+    # Field of study / discipline from facts (discipline field or education entries).
+    majors = _extract_disciplines(facts)
+    if not majors:
+        return ("do", "skip", "", "discipline-no-fact")
+    ftype = (f.get("type") or "").lower()
+    if ftype in ("select", "custom-select"):
+        return ("opt", majors + ["Other"], "discipline")
+    return ("do", "fill", majors[0], "discipline")
+
+
 def r_major(f, facts, ats):
-    if f.get("type") == "select":
-        return ("opt", ["Computer Science", "Computer science", "CS", "Other"],
-                "education")
-    return ("do", "fill", "Computer Science", "education")
+    return r_discipline(f, facts, ats)
 
 
 def r_gradyear(f, facts, ats):
@@ -446,25 +583,29 @@ def r_sponsorship(f, facts, ats):
             "work-auth-sponsorship")
 
 
+def r_start_date(f, facts, ats):
+    value = facts.get("start_date")
+    if not value:
+        return None
+    return ("do", "fill", str(value), "start-date")
+
+
 def r_verify_identity(f, facts, ats):
     # "Can you provide verification of your identity upon hire?" -> Yes.
     return ("opt", ["Yes"], "identity-verification-yes")
 
 
 def r_authorized_yes(f, facts, ats):
-    # "Legally authorized to work" -> Yes (facts work_authorization).
-    # Excludes "without sponsorship" phrasing (handled by sponsorship).
+    # "Legally authorized to work" -> Yes only when facts affirm work auth/eligibility.
+    # Excludes "without sponsorship" phrasing variants (handled by sponsorship or guarded).
+    blob = label_blob(f)
+    if ACK_BAD_RE.search(blob):
+        return None
+    if sponsorship_excluded(blob):
+        return None
+    if not facts_affirm_work_auth(facts):
+        return ("do", "skip", "", "work-auth-no-fact")
     return ("opt", ["Yes"], "work-auth-authorized-yes")
-
-
-# Privacy-ack safety: legal-weight language must NEVER be auto-acknowledged.
-# Privacy/data-processing acknowledgements are fine; arbitration, background
-# checks, drug tests, assessments, and security clearances always stop for
-# human review.
-ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
-                        r"criminal|credit.?check|security.?clearance|"
-                        r"true and correct|certif",
-                        re.IGNORECASE)
 
 
 def r_privacy_ack_select(f, facts, ats):
@@ -508,19 +649,6 @@ def r_edu_year(f, facts, ats, which):
         return None
     return ("do", "fill", str(yr), "edu-date")
 
-
-def r_discipline(f, facts, ats):
-    # Field of study / discipline from facts education entries.
-    majors = []
-    for e in facts.get("education") or []:
-        deg = str(e.get("degree", ""))
-        for part in re.split(r"[,&/]", deg):
-            part = part.strip()
-            if part and part not in majors:
-                majors.append(part)
-    if not majors:
-        return None
-    return ("opt", majors + ["Other"], "discipline")
 
 
 def r_inoffice(f, facts, ats):
@@ -641,12 +769,12 @@ PATTERNS = [
      {"text", "select", "custom-select"}),
     ("degree", re.compile(r"\bdegree\b", re.I), r_degree,
      {"text", "select", "custom-select"}),
-    ("major", re.compile(r"\bmajor\b|field of study|discipline", re.I),
-     r_major, {"text", "select"}),
+    ("discipline", re.compile(r"\bdiscipline\b|field of study", re.I),
+     r_discipline, {"text", "select", "custom-select"}),
+    ("major", re.compile(r"\bmajor\b", re.I),
+     r_major, {"text", "select", "custom-select"}),
     ("gradyear", re.compile(r"graduation|end year|class of|year.*graduat",
                             re.I), r_gradyear, {"text", "select", "number"}),
-    ("discipline", re.compile(r"\bdiscipline\b|field of study", re.I),
-     r_discipline, {"select", "custom-select"}),
     ("edu-start-month", re.compile(r"start.*month|month.*start", re.I),
      lambda f, facts, ats: r_edu_month(f, facts, ats, "start"),
      {"select", "custom-select"}),
@@ -678,7 +806,7 @@ PATTERNS = [
     ("willing-start-flex", re.compile(r"flexible.*start|start.*flexible|"
                                       r"available.*start", re.I), r_yes, None),
     ("start-date", re.compile(r"when can you start|start date", re.I),
-     r_skip, None),
+     r_start_date, {"text", "textarea", "input"}),
     # salary
     ("salary-text", re.compile(r"salary|compensation|pay expectation|"
                                r"desired.*(pay|salary)", re.I), r_salary_text,
@@ -704,10 +832,10 @@ PATTERNS = [
      re.compile(r"verification of your (identity|identify) upon hire|verify.*identity", re.I),
      r_verify_identity, None),
     # "legally authorized to work" (Ashby yes/no buttons, radio groups) ->
-    # Yes per facts. Excludes "without sponsorship" phrasing.
+    # Yes per facts. Excludes "without sponsorship" phrasing variants.
     ("workauth-authorized",
-     re.compile(r"(legally )?authorized to work(?!.*without sponsorship)|"
-                r"have authorization to work", re.I),
+     re.compile(r"(?:(legally )?authorized to work|have authorization to work)"
+                r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))", re.I),
      r_authorized_yes, None),
     # currently living in the country -> Yes
     ("currently-live-us",
@@ -852,9 +980,10 @@ def map_template(schema, facts, ats="unknown"):
         r"via sms|sms.*application|message and data rates", re.IGNORECASE)
     # "Legally authorized to work" has a deterministic facts-driven answer
     # (Yes); exempt it from guard so the workauth-authorized pattern
-    # answers it. Keep guarding the "without sponsorship" variant.
+    # answers it. Keep guarding the "without sponsorship" variants.
     AUTHORIZED_YES_GUARD_EXC = re.compile(
-        r"legally authorized to work(?!.*without sponsorship)|have authorization to work",
+        r"(?:(legally )?authorized to work|have authorization to work)"
+        r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))",
         re.IGNORECASE)
     # Privacy-ack checkboxes have a deterministic answer (acknowledge);
     # exempt so the privacy-ack-check pattern answers them. Legal-weight
@@ -864,14 +993,20 @@ def map_template(schema, facts, ats="unknown"):
         re.IGNORECASE)
     for f in fields:
         blob = label_blob(f)
+        if ACK_BAD_RE.search(blob):
+            add(f["key"], "skip", "", guard=True)
+            continue
         if GUARD_RE.search(blob):
+            if sponsorship_excluded(blob):
+                add(f["key"], "skip", "", guard=True)
+                continue
             if SPONSORSHIP_OPT_GUARD_EXC.search(blob):
                 continue  # handled by the workauth-sponsorship pattern
             if SMS_CONSENT_GUARD_EXC.search(blob):
                 continue  # handled by the sms-consent pattern (Opt-Out)
-            if AUTHORIZED_YES_GUARD_EXC.search(blob):
+            if AUTHORIZED_YES_GUARD_EXC.search(blob) and not sponsorship_excluded(blob):
                 continue  # handled by the workauth-authorized pattern (Yes)
-            if PRIVACY_ACK_GUARD_EXC.search(blob) and not ACK_BAD_RE.search(blob):
+            if PRIVACY_ACK_GUARD_EXC.search(blob):
                 continue  # handled by the privacy-ack-check pattern
             add(f["key"], "skip", "", guard=True)
 
@@ -881,6 +1016,11 @@ def map_template(schema, facts, ats="unknown"):
         gid = group_id(f)
         groups.setdefault(gid, []).append(f)
     for gid, gfields in groups.items():
+        if any(f["key"] in entries and entries[f["key"]].get("guard") for f in gfields):
+            for gf in gfields:
+                if gf["key"] not in entries:
+                    add(gf["key"], "skip", "", guard=True)
+            continue
         if all(f["key"] in entries for f in gfields):
             continue
         kind, _ = gid

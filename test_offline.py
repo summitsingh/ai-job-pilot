@@ -14,7 +14,8 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from templates import map_template
+from templates import (map_template, sponsorship_excluded,
+                       r_work_eligible, r_authorized_yes)
 from hard_patterns import (matches, pick_sponsorship_option,
                             is_country_visa_option, is_sponsorship_field)
 from batch_apply import load_dedup_set, match_resume
@@ -124,6 +125,168 @@ class TestMapTemplate(unittest.TestCase):
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#we"]["action"], "select")
 
+    def test_work_eligible_empty_facts_skips(self):
+        field = {"key": "#we", "label": "Are you legally eligible to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        res = r_work_eligible(field, {}, "greenhouse")
+        self.assertEqual(res, ("do", "skip", "", "work-eligible-no-fact"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, {}, "greenhouse"))
+        self.assertEqual(m["#we"]["action"], "skip")
+        self.assertEqual(m["#we"]["note"], "work-eligible-no-fact")
+
+    def test_work_eligible_facts_affirmed_answers_yes(self):
+        field = {"key": "#we", "label": "Are you legally eligible to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        facts = {"work_authorization": True}
+        res = r_work_eligible(field, facts, "greenhouse")
+        self.assertEqual(res, ("opt", ["Yes"], "work-eligible-yes"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, facts, "greenhouse"))
+        self.assertEqual(m["#we"]["action"], "select")
+        self.assertEqual(m["#we"]["value"], "Yes")
+
+    def test_authorized_yes_empty_facts_skips(self):
+        field = {"key": "#wa", "label": "Are you legally authorized to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        res = r_authorized_yes(field, {}, "greenhouse")
+        self.assertEqual(res, ("do", "skip", "", "work-auth-no-fact"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, {}, "greenhouse"))
+        self.assertEqual(m["#wa"]["action"], "skip")
+        self.assertEqual(m["#wa"]["note"], "work-auth-no-fact")
+
+    def test_authorized_yes_facts_affirmed_answers_yes(self):
+        field = {"key": "#wa", "label": "Are you legally authorized to work?",
+                 "type": "select", "options": ["Yes", "No"]}
+        facts = {"work_authorization": "yes, authorized"}
+        res = r_authorized_yes(field, facts, "greenhouse")
+        self.assertEqual(res, ("opt", ["Yes"], "work-auth-authorized-yes"))
+        schema = {"fields": [field]}
+        m = mapped(map_template(schema, facts, "greenhouse"))
+        self.assertEqual(m["#wa"]["action"], "select")
+        self.assertEqual(m["#wa"]["value"], "Yes")
+
+    def test_pure_work_auth_radio_answered_yes(self):
+        schema = {"fields": [
+            {"key": "#auth_yes",
+             "label": "Are you legally authorized to work in the US?",
+             "option_label": "Yes", "type": "radio", "group": "auth_q"},
+            {"key": "#auth_no",
+             "label": "Are you legally authorized to work in the US?",
+             "option_label": "No", "type": "radio", "group": "auth_q"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#auth_yes"]["action"], "click")
+        self.assertEqual(m["#auth_yes"]["value"], "Yes")
+
+    def test_pure_have_authorization_radio_answered_yes(self):
+        schema = {"fields": [
+            {"key": "#auth_yes",
+             "label": "Do you have authorization to work in the US?",
+             "option_label": "Yes", "type": "radio", "group": "auth_q"},
+            {"key": "#auth_no",
+             "label": "Do you have authorization to work in the US?",
+             "option_label": "No", "type": "radio", "group": "auth_q"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#auth_yes"]["action"], "click")
+        self.assertEqual(m["#auth_yes"]["value"], "Yes")
+
+    def test_sponsorship_excluded_helper(self):
+        self.assertTrue(sponsorship_excluded("without sponsorship"))
+        self.assertTrue(sponsorship_excluded("without requiring sponsorship"))
+        self.assertTrue(sponsorship_excluded("no sponsorship"))
+        # Case-insensitivity
+        self.assertTrue(sponsorship_excluded("WITHOUT SPONSORSHIP"))
+        self.assertTrue(sponsorship_excluded("Without Requiring Sponsorship"))
+        self.assertTrue(sponsorship_excluded("No Sponsorship"))
+        # Context variations
+        self.assertTrue(sponsorship_excluded("authorized to work in the US without requiring sponsorship"))
+        self.assertTrue(sponsorship_excluded("have authorization to work without sponsorship"))
+        self.assertTrue(sponsorship_excluded("authorized to work (no sponsorship)"))
+        self.assertTrue(sponsorship_excluded("without   requiring   sponsorship"))
+        # Negative cases
+        self.assertFalse(sponsorship_excluded("Are you legally authorized to work in the US?"))
+        self.assertFalse(sponsorship_excluded("Do you have authorization to work in the US?"))
+        self.assertFalse(sponsorship_excluded("Will you require sponsorship?"))
+        self.assertFalse(sponsorship_excluded(""))
+        self.assertFalse(sponsorship_excluded(None))
+
+    def test_sponsorship_exclusion_branch1_phrasings(self):
+        # Branch 1: "authorized to work" / "legally authorized to work"
+        variants = [
+            "Are you authorized to work in the US without requiring sponsorship?",
+            "Are you authorized to work in the US without sponsorship?",
+            "Are you authorized to work in the US with no sponsorship?",
+            "Are you legally authorized to work in the US without requiring sponsorship?",
+            "Are you legally authorized to work in the US without sponsorship?",
+            "Are you legally authorized to work in the US (No Sponsorship)?",
+        ]
+        for label in variants:
+            schema = {"fields": [
+                {"key": "#q_yes", "label": label, "option_label": "Yes", "type": "radio", "group": "auth_g"},
+                {"key": "#q_no", "label": label, "option_label": "No", "type": "radio", "group": "auth_g"},
+            ]}
+            m = mapped(map_template(schema, self.facts, "greenhouse"))
+            self.assertEqual(m["#q_yes"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_yes"].get("guard"), f"Expected guard for: {label}")
+            self.assertEqual(m["#q_no"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_no"].get("guard"), f"Expected guard for: {label}")
+
+    def test_sponsorship_exclusion_branch2_phrasings(self):
+        # Branch 2: "have authorization to work"
+        variants = [
+            "Do you have authorization to work in the US without requiring sponsorship?",
+            "Do you have authorization to work in the US without sponsorship?",
+            "Do you have authorization to work in the US with no sponsorship?",
+            "Do you have authorization to work in the US (no sponsorship)?",
+            "Do you have authorization to work in the US WITHOUT REQUIRING SPONSORSHIP?",
+        ]
+        for label in variants:
+            schema = {"fields": [
+                {"key": "#q_yes", "label": label, "option_label": "Yes", "type": "radio", "group": "auth_g"},
+                {"key": "#q_no", "label": label, "option_label": "No", "type": "radio", "group": "auth_g"},
+            ]}
+            m = mapped(map_template(schema, self.facts, "greenhouse"))
+            self.assertEqual(m["#q_yes"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_yes"].get("guard"), f"Expected guard for: {label}")
+            self.assertEqual(m["#q_no"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_no"].get("guard"), f"Expected guard for: {label}")
+
+    def test_sponsorship_exclusion_prefix_phrasings(self):
+        # Exclusion phrasing appearing before authorization phrase
+        variants = [
+            "Without sponsorship, are you authorized to work in the US?",
+            "Without requiring sponsorship, do you have authorization to work in the US?",
+            "With no sponsorship, are you authorized to work in the US?",
+        ]
+        for label in variants:
+            schema = {"fields": [
+                {"key": "#q_yes", "label": label, "option_label": "Yes", "type": "radio", "group": "auth_g"},
+                {"key": "#q_no", "label": label, "option_label": "No", "type": "radio", "group": "auth_g"},
+            ]}
+            m = mapped(map_template(schema, self.facts, "greenhouse"))
+            self.assertEqual(m["#q_yes"]["action"], "skip", f"Expected skip for: {label}")
+            self.assertTrue(m["#q_yes"].get("guard"), f"Expected guard for: {label}")
+
+    def test_compound_consent_question_maps_to_skip(self):
+        # Safety invariant: compound consent questions (combining work-auth
+        # and legal consent like background check) must NEVER be auto-answered Yes.
+        schema = {"fields": [
+            {"key": "#q_yes",
+             "label": "Are you legally authorized to work and do you consent to a background check?",
+             "option_label": "Yes", "type": "radio", "group": "compound_q"},
+            {"key": "#q_no",
+             "label": "Are you legally authorized to work and do you consent to a background check?",
+             "option_label": "No", "type": "radio", "group": "compound_q"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#q_yes"]["action"], "skip")
+        self.assertTrue(m["#q_yes"].get("guard"))
+        self.assertEqual(m["#q_no"]["action"], "skip")
+        self.assertTrue(m["#q_no"].get("guard"))
+
     def test_privacy_ack_select_answered(self):
         schema = {"fields": [
             {"key": "#pa", "label": "Privacy Notice Acknowledgement",
@@ -142,6 +305,75 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(m["#ab"]["action"], "skip")
         self.assertTrue(m["#ab"].get("guard"))
 
+    def test_privacy_ack_with_attestation_stays_guarded(self):
+        schema = {"fields": [
+            {"key": "#att", "label": "I attest that I have read the privacy notice",
+             "type": "checkbox", "option_label": "I acknowledge"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "greenhouse"))
+        self.assertEqual(m["#att"]["action"], "skip")
+        self.assertTrue(m["#att"].get("guard"))
+
+    def test_apply_acknowledge_override_refuses_attestation_and_certification(self):
+        from map import apply_acknowledge_override
+        schema = {"fields": [
+            {"key": "#attest", "label": "I attest that the above is true and correct",
+             "type": "checkbox", "option_label": "Acknowledge/Confirm"},
+            {"key": "#certif", "label": "Certification of truthful information",
+             "type": "checkbox", "option_label": "Acknowledge/Confirm"},
+            {"key": "#clean", "label": "Privacy Policy Acknowledgement",
+             "type": "checkbox", "option_label": "Acknowledge/Confirm"},
+        ]}
+        mapped_in = [
+            {"field": "#attest", "action": "skip", "value": "", "guard": "human-review"},
+            {"field": "#certif", "action": "skip", "value": "", "guard": "human-review"},
+            {"field": "#clean", "action": "skip", "value": "", "guard": "human-review"},
+        ]
+        out = {e["field"]: e for e in apply_acknowledge_override(mapped_in, schema)}
+        # Attestation and certification stay skipped for human review
+        self.assertEqual(out["#attest"]["action"], "skip")
+        self.assertEqual(out["#attest"].get("guard"), "human-review")
+        self.assertEqual(out["#certif"]["action"], "skip")
+        self.assertEqual(out["#certif"].get("guard"), "human-review")
+        # Benign privacy acknowledgment is auto-clicked and guard cleared
+        self.assertEqual(out["#clean"]["action"], "click")
+        self.assertEqual(out["#clean"]["value"], "Acknowledge/Confirm")
+        self.assertEqual(out["#clean"]["note"], "privacy-ack")
+        self.assertNotIn("guard", out["#clean"])
+
+    def test_apply_work_auth_select_overrides_rejects_country_visa(self):
+        from map import apply_work_auth_select_overrides
+        # options ["Yes", "Yes, Germany visa", "No"] with a generic work-auth question
+        schema = {"fields": [
+            {"key": "#s1", "label": "Will you now or in the future require sponsorship?",
+             "type": "select", "options": ["Yes", "Yes, Germany visa", "No"]},
+            {"key": "#s2", "label": "Will you require sponsorship for employment visa status?",
+             "type": "custom-select", "options": ["Yes, Germany visa", "No"]},
+        ]}
+        mapped_in = [
+            {"field": "#s1", "action": "skip", "value": ""},
+            {"field": "#s2", "action": "select", "value": "Yes, Germany visa"},
+        ]
+        out = {e["field"]: e for e in apply_work_auth_select_overrides(mapped_in, schema)}
+        # #s1 has safe "Yes" -> selects "Yes", never "Yes, Germany visa"
+        self.assertEqual(out["#s1"]["action"], "select")
+        self.assertEqual(out["#s1"]["value"], "Yes")
+
+        # #s2 has only unsafe "Yes, Germany visa" -> must map to skip
+        self.assertEqual(out["#s2"]["action"], "skip")
+        self.assertEqual(out["#s2"]["value"], "")
+
+
+    def test_start_date_uses_only_explicit_fact(self):
+        schema = {"fields": [
+            {"key": "#start", "label": "When can you start?", "type": "text"},
+        ]}
+        result = mapped(map_template(schema, self.facts, "greenhouse"))["#start"]
+        self.assertEqual(result["action"], "skip")
+        facts = dict(self.facts, start_date="October 20")
+        result = mapped(map_template(schema, facts, "greenhouse"))["#start"]
+        self.assertEqual((result["action"], result["value"]), ("fill", "October 20"))
+
     def test_edu_dates_from_facts(self):
         schema = {"fields": [
             {"key": "#sm", "label": "Start Month", "type": "select",
@@ -159,6 +391,43 @@ class TestMapTemplate(unittest.TestCase):
         ]}
         m = mapped(map_template(schema, self.facts, "greenhouse"))
         self.assertEqual(m["#d"]["action"], "select")
+        self.assertEqual(m["#d"]["value"], "Computer Science")
+        self.assertEqual(m["#d"]["note"], "discipline")
+
+    def test_field_of_study_discipline_from_facts(self):
+        facts = dict(self.facts)
+        facts["discipline"] = "Electrical Engineering"
+        schema_text = {"fields": [
+            {"key": "#d", "label": "Field of study / discipline", "type": "text"},
+        ]}
+        m = mapped(map_template(schema_text, facts, "greenhouse"))
+        self.assertEqual(m["#d"]["action"], "fill")
+        self.assertEqual(m["#d"]["value"], "Electrical Engineering")
+
+        schema_select = {"fields": [
+            {"key": "#d_sel", "label": "Field of study / discipline", "type": "select",
+             "options": ["Computer Science", "Electrical Engineering", "Other"]},
+        ]}
+        m_sel = mapped(map_template(schema_select, facts, "greenhouse"))
+        self.assertEqual(m_sel["#d_sel"]["action"], "select")
+        self.assertEqual(m_sel["#d_sel"]["value"], "Electrical Engineering")
+
+    def test_discipline_no_facts_skips(self):
+        facts = dict(self.facts)
+        facts.pop("discipline", None)
+        facts["education"] = []
+        schema_text = {"fields": [
+            {"key": "#d", "label": "Field of study / discipline", "type": "text"},
+        ]}
+        m = mapped(map_template(schema_text, facts, "greenhouse"))
+        self.assertEqual(m["#d"]["action"], "skip")
+
+        schema_select = {"fields": [
+            {"key": "#d_sel", "label": "Field of study / discipline", "type": "select",
+             "options": ["Computer Science", "Electrical Engineering", "Other"]},
+        ]}
+        m_sel = mapped(map_template(schema_select, facts, "greenhouse"))
+        self.assertEqual(m_sel["#d_sel"]["action"], "skip")
 
     def test_inoffice_willingness(self):
         schema = {"fields": [
