@@ -175,15 +175,21 @@ class NativeTextFillTests(unittest.TestCase):
         fmap = {"map": [{
             "field": "#radio-option", "action": "click", "value": "6-10 years",
         }]}
+        status_js = fill.group_option_status_js("scope", "inputs", "6-10 years")
+        status_calls = 0
 
         def answer_cdp_ok(port, command, payload, **kwargs):
+            nonlocal status_calls
             if payload == b64("readback"):
                 return {"result": [{
                     "key": "#radio-option", "found": True, "value": "checked",
                 }]}
             if payload == b64("live"):
                 return {"result": {"fields": []}}
-            return {"result": {"ok": True, "checked": True}}
+            if payload == b64(status_js):
+                status_calls += 1
+                return {"result": {"found": True, "checked": status_calls >= 2}}
+            return {"result": {"ok": True}}
 
         with (
             patch.object(fill, "ensure_driver"),
@@ -193,12 +199,94 @@ class NativeTextFillTests(unittest.TestCase):
             patch.object(fill, "readback_js", return_value="readback"),
             patch.object(fill, "audit_form", return_value=[]),
             patch.object(fill, "DUMP_JS", "live"),
+            patch.object(fill.time, "sleep", return_value=None),
         ):
             result = fill.apply_fill(schema, fmap, 9450, True, "")
 
         cdp_mock.assert_called_once_with(
             9450, "fclickel", b64(fill.group_option_click_js("scope", "inputs", "6-10 years"))
         )
+        self.assertGreaterEqual(status_calls, 2)
+        self.assertEqual(result["fields_mismatched"], [])
+        self.assertFalse(result["submitted"])
+
+    def test_grouped_radio_skips_click_when_option_is_already_selected(self):
+        schema = {"fields": [{
+            "key": "#radio-option", "type": "radio", "grouped": True,
+            "dfp": "experience", "option_label": "6-10 years",
+        }]}
+        fmap = {"map": [{
+            "field": "#radio-option", "action": "click", "value": "6-10 years",
+        }]}
+        status_js = fill.group_option_status_js("scope", "inputs", "6-10 years")
+
+        def answer_cdp_ok(port, command, payload, **kwargs):
+            if payload == b64("readback"):
+                return {"result": [{
+                    "key": "#radio-option", "found": True, "value": "checked",
+                }]}
+            if payload == b64("live"):
+                return {"result": {"fields": []}}
+            if payload == b64(status_js):
+                return {"result": {"found": True, "checked": True}}
+            return {"result": {"ok": True}}
+
+        with (
+            patch.object(fill, "ensure_driver"),
+            patch.object(fill, "group_scope_inputs", return_value=("scope", "inputs")),
+            patch.object(fill, "cdp_ok", side_effect=answer_cdp_ok),
+            patch.object(fill, "cdp") as cdp_mock,
+            patch.object(fill, "readback_js", return_value="readback"),
+            patch.object(fill, "audit_form", return_value=[]),
+            patch.object(fill, "DUMP_JS", "live"),
+        ):
+            result = fill.apply_fill(schema, fmap, 9450, True, "")
+
+        cdp_mock.assert_not_called()
+        self.assertTrue(result["per_field"][0]["applied"])
+        self.assertEqual(result["fields_mismatched"], [])
+
+    def test_grouped_radio_retries_pointer_click_until_selection_persists(self):
+        schema = {"fields": [{
+            "key": "#radio-option", "type": "radio", "grouped": True,
+            "dfp": "experience", "option_label": "6-10 years",
+        }]}
+        fmap = {"map": [{
+            "field": "#radio-option", "action": "click", "value": "6-10 years",
+        }]}
+        status_js = fill.group_option_status_js("scope", "inputs", "6-10 years")
+        click_count = 0
+
+        def answer_cdp_ok(port, command, payload, **kwargs):
+            if payload == b64("readback"):
+                return {"result": [{
+                    "key": "#radio-option", "found": True, "value": "checked",
+                }]}
+            if payload == b64("live"):
+                return {"result": {"fields": []}}
+            if payload == b64(status_js):
+                return {"result": {"found": True, "checked": click_count >= 2}}
+            return {"result": {"ok": True}}
+
+        def trusted_click(*args, **kwargs):
+            nonlocal click_count
+            click_count += 1
+            return {"ok": True}
+
+        with (
+            patch.object(fill, "ensure_driver"),
+            patch.object(fill, "group_scope_inputs", return_value=("scope", "inputs")),
+            patch.object(fill, "cdp_ok", side_effect=answer_cdp_ok),
+            patch.object(fill, "cdp", side_effect=trusted_click) as cdp_mock,
+            patch.object(fill, "readback_js", return_value="readback"),
+            patch.object(fill, "audit_form", return_value=[]),
+            patch.object(fill, "DUMP_JS", "live"),
+            patch.object(fill.time, "sleep", return_value=None),
+        ):
+            result = fill.apply_fill(schema, fmap, 9450, True, "")
+
+        self.assertEqual(click_count, 2)
+        self.assertEqual(cdp_mock.call_count, 2)
         self.assertEqual(result["fields_mismatched"], [])
         self.assertFalse(result["submitted"])
 

@@ -259,6 +259,25 @@ def group_option_click_js(scope_sel, inputs_sel, label):
             "return {x: r.x + r.width/2, y: r.y + r.height/2, inView: inView}; })()")
 
 
+def group_option_status_js(scope_sel, inputs_sel, label):
+    """Return whether the grouped option matching `label` is currently checked."""
+    scope_expr = ("document.querySelector(" + json.dumps(scope_sel) + ")"
+                  if scope_sel else "document")
+    return ("(() => { const scope = " + scope_expr +
+            "; if (!scope) return {found:false, checked:false, why:'no-scope'}; " +
+            "const inputs = Array.from(scope.querySelectorAll(" +
+            json.dumps(inputs_sel) + ")); " +
+            "const norm = s => (s||'').trim().replace(/\\s+/g,' ').toLowerCase(); " +
+            "const want = norm(" + json.dumps(label) + "); " +
+            "const labelOf = el => { try { if (el.labels && el.labels[0]) { " +
+            "const t = el.labels[0].innerText; if (t) return t; } } catch(e){} " +
+            "const l = el.closest('label'); return l ? (l.innerText||'') : ''; }; " +
+            "const el = inputs.find(i => { const t = norm(labelOf(i)); " +
+            "return t && (t === want || t.includes(want) || want.includes(t)); }); " +
+            "return el ? {found:true, checked:!!el.checked, disabled:!!el.disabled} " +
+            ": {found:false, checked:false, why:'no-label-match', count:inputs.length}; })()")
+
+
 def group_option_native_click_js(scope_sel, inputs_sel, label):
     """One-shot JS: resolve the grouped option by label, click its <label>
     natively (label.click()), verify the input is checked.
@@ -721,14 +740,45 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                     scope_sel, inputs_sel = group_scope_inputs(f)
                     label = f.get("option_label", "") or m["value"]
                     if f.get("type") == "radio" and f.get("dfp"):
-                        try:
-                            r = cdp(port, "fclickel", b64(group_option_click_js(
-                                scope_sel, inputs_sel, label)))
-                            ok2c = bool(r.get("ok"))
-                            click_note = r.get("error", "")
-                        except Exception as e:
-                            ok2c = False
-                            click_note = "label-coordinate-click:" + type(e).__name__
+                        # Avoid clicking an already-selected Ashby radio.
+                        # For new selections, use trusted pointer input, poll
+                        # React state, then retry once if it did not persist.
+                        status_js = group_option_status_js(
+                            scope_sel, inputs_sel, label)
+                        ok2c = False
+                        click_note = ""
+                        for attempt in range(2):
+                            try:
+                                state = cdp_ok(
+                                    port, "evalb64", b64(status_js),
+                                    timeout=60)["result"]
+                                if state.get("found") and state.get("checked"):
+                                    ok2c = True
+                                    click_note = ("already-selected" if attempt == 0
+                                                  else "selected-after-retry")
+                                    break
+                                r = cdp(port, "fclickel", b64(
+                                    group_option_click_js(
+                                        scope_sel, inputs_sel, label)))
+                                for _ in range(5):
+                                    time.sleep(0.1)
+                                    state = cdp_ok(
+                                        port, "evalb64", b64(status_js),
+                                        timeout=60)["result"]
+                                    if state.get("found") and state.get("checked"):
+                                        ok2c = True
+                                        click_note = ("selected-after-retry"
+                                                      if attempt else "")
+                                        break
+                                if ok2c:
+                                    break
+                                click_note = (state.get("why") or
+                                              r.get("error") or
+                                              "radio-selection-not-persisted")
+                            except Exception as e:
+                                click_note = "label-coordinate-click:" + type(e).__name__
+                            if attempt == 0:
+                                time.sleep(0.1)
                     else:
                         r = cdp_ok(port, "evalb64",
                                    b64(group_option_native_click_js(
