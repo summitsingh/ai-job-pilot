@@ -152,6 +152,91 @@ class NativeTextFillTests(unittest.TestCase):
         self.assertEqual(result, {})
         native_mock.assert_not_called()
 
+    def test_unverified_fill_blocks_submission_even_when_audit_has_no_blockers(self):
+        self.assertEqual(
+            fill.pre_submit_blockers([], ["#required-radio"]),
+            ["unverified-fill:#required-radio"],
+        )
+
+    def test_grouped_radio_click_targets_associated_label_geometry(self):
+        script = fill.group_option_click_js(
+            '[data-field-path="experience"]', 'input[type="radio"]', '6-10 years'
+        )
+
+        self.assertIn("const target = (el.labels && el.labels[0]) || el.closest('label')", script)
+        self.assertIn("const r = target.getBoundingClientRect()", script)
+        self.assertNotIn("const r = el.getBoundingClientRect()", script)
+
+    def test_grouped_radio_uses_trusted_click_on_label_target(self):
+        schema = {"fields": [{
+            "key": "#radio-option", "type": "radio", "grouped": True,
+            "dfp": "experience", "option_label": "6-10 years",
+        }]}
+        fmap = {"map": [{
+            "field": "#radio-option", "action": "click", "value": "6-10 years",
+        }]}
+
+        def answer_cdp_ok(port, command, payload, **kwargs):
+            if payload == b64("readback"):
+                return {"result": [{
+                    "key": "#radio-option", "found": True, "value": "checked",
+                }]}
+            if payload == b64("live"):
+                return {"result": {"fields": []}}
+            return {"result": {"ok": True, "checked": True}}
+
+        with (
+            patch.object(fill, "ensure_driver"),
+            patch.object(fill, "group_scope_inputs", return_value=("scope", "inputs")),
+            patch.object(fill, "cdp_ok", side_effect=answer_cdp_ok),
+            patch.object(fill, "cdp", return_value={"ok": True}) as cdp_mock,
+            patch.object(fill, "readback_js", return_value="readback"),
+            patch.object(fill, "audit_form", return_value=[]),
+            patch.object(fill, "DUMP_JS", "live"),
+        ):
+            result = fill.apply_fill(schema, fmap, 9450, True, "")
+
+        cdp_mock.assert_called_once_with(
+            9450, "fclickel", b64(fill.group_option_click_js("scope", "inputs", "6-10 years"))
+        )
+        self.assertEqual(result["fields_mismatched"], [])
+        self.assertFalse(result["submitted"])
+
+    def test_unverified_radio_prevents_submit_when_required_audit_is_empty(self):
+        schema = {"fields": [{
+            "key": "#radio-option", "type": "radio", "grouped": True,
+            "dfp": "experience", "option_label": "6-10 years",
+        }]}
+        fmap = {"map": [{
+            "field": "#radio-option", "action": "click", "value": "6-10 years",
+        }]}
+
+        def answer_cdp_ok(port, command, payload, **kwargs):
+            if payload == b64("readback"):
+                return {"result": [{
+                    "key": "#radio-option", "found": True, "value": "unchecked",
+                }]}
+            if payload == b64("live"):
+                return {"result": {"fields": []}}
+            return {"result": []}
+
+        with (
+            patch.object(fill, "ensure_driver"),
+            patch.object(fill, "group_scope_inputs", return_value=("scope", "inputs")),
+            patch.object(fill, "cdp_ok", side_effect=answer_cdp_ok),
+            patch.object(fill, "cdp", return_value={"ok": True}),
+            patch.object(fill, "readback_js", return_value="readback"),
+            patch.object(fill, "audit_form", return_value=[]),
+            patch.object(fill, "DUMP_JS", "live"),
+            patch.object(fill, "resolve_submit_key") as resolve_submit_mock,
+        ):
+            result = fill.apply_fill(schema, fmap, 9450, False, "")
+
+        self.assertEqual(result["fields_mismatched"], ["#radio-option"])
+        self.assertIn("unverified-fill:#radio-option", result["audit_blockers"])
+        self.assertFalse(result["submitted"])
+        resolve_submit_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

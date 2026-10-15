@@ -33,6 +33,21 @@ from schema_dump import DUMP_JS
 TEXT_TYPES = {"text", "email", "tel", "url", "number", "password", "textarea"}
 
 
+def pre_submit_blockers(audit_blockers, mismatched):
+    """Treat every intended-but-unverified fill as a submit blocker.
+
+    The required-field audit can legitimately ignore optional fields, but a
+    failed mapped fill is never safe to submit (including radios whose group
+    is not surfaced as required by the ATS DOM).
+    """
+    blockers = list(audit_blockers or [])
+    for field in mismatched or []:
+        marker = f"unverified-fill:{field}"
+        if marker not in blockers:
+            blockers.append(marker)
+    return blockers
+
+
 def js_decode_b64(var="B64"):
     return (f'JSON.parse(new TextDecoder().decode(Uint8Array.from(atob("{var}"), '
             'c => c.charCodeAt(0))))')
@@ -235,9 +250,11 @@ def group_option_click_js(scope_sel, inputs_sel, label):
             "let el = inputs.find(i => { const t = lab(labelOf(i)); " +
             "return t && (t === want || t.includes(want) || want.includes(t)); }); " +
             "if (!el) return {error:'no-label-match', n: inputs.length}; " +
-            "el.scrollIntoView({block:'center', behavior:'instant'}); " +
-            "void el.offsetHeight; " +
-            "const r = el.getBoundingClientRect(); " +
+            "const target = (el.labels && el.labels[0]) || el.closest('label'); " +
+            "if (!target) return {error:'no-label-el'}; " +
+            "target.scrollIntoView({block:'center', behavior:'instant'}); " +
+            "void target.offsetHeight; " +
+            "const r = target.getBoundingClientRect(); " +
             "const inView = r.y >= 0 && r.y <= window.innerHeight; " +
             "return {x: r.x + r.width/2, y: r.y + r.height/2, inView: inView}; })()")
 
@@ -698,22 +715,32 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                                               "applied": ok2b,
                                               "note": r.get("why", "")})
                 else:
-                    # grouped radios (and others): native label click
-                    # (Ashby per-load session UUIDs; Lever shared names).
-                    # Native clicks toggle opacity-0 custom inputs that
-                    # coordinate clicks miss.
+                    # Grouped radios with Ashby data-field-paths need a trusted
+                    # pointer click on the associated label; DOM label.click()
+                    # does not reliably persist Ashby's controlled React state.
                     scope_sel, inputs_sel = group_scope_inputs(f)
-                    r = cdp_ok(port, "evalb64",
-                               b64(group_option_native_click_js(
-                                   scope_sel, inputs_sel,
-                                   f.get("option_label", "") or m["value"])),
-                               timeout=60)["result"]
-                    ok2c = bool(r.get("ok") and (r.get("checked") or
-                                                 r.get("already")))
+                    label = f.get("option_label", "") or m["value"]
+                    if f.get("type") == "radio" and f.get("dfp"):
+                        try:
+                            r = cdp(port, "fclickel", b64(group_option_click_js(
+                                scope_sel, inputs_sel, label)))
+                            ok2c = bool(r.get("ok"))
+                            click_note = r.get("error", "")
+                        except Exception as e:
+                            ok2c = False
+                            click_note = "label-coordinate-click:" + type(e).__name__
+                    else:
+                        r = cdp_ok(port, "evalb64",
+                                   b64(group_option_native_click_js(
+                                       scope_sel, inputs_sel, label)),
+                                   timeout=60)["result"]
+                        ok2c = bool(r.get("ok") and (r.get("checked") or
+                                                     r.get("already")))
+                        click_note = r.get("why", "")
                     per_field.append({"field": m["field"], "action": "click",
                                       "expected": m["value"],
                                       "applied": ok2c,
-                                      "note": r.get("why", "")})
+                                      "note": click_note})
             else:
                 # Singleton click: idempotent yes/no toggle first (Ashby
                 # yes/no buttons are independent toggles; a blind click can
@@ -835,6 +862,7 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
         blockers = audit_form(schema, live, fmap, mismatched, invalid)
     except Exception as e:
         blockers = ["audit-failed:" + str(e)[:160]]
+    blockers = pre_submit_blockers(blockers, mismatched)
     if blockers:
         notes.append("PRE-SUBMIT BLOCKERS: " + ", ".join(blockers))
 
