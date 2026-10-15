@@ -34,5 +34,21 @@ class PreSubmitAuditTests(unittest.TestCase):
         self.assertEqual(audit_form(schema, schema, mapping, []), [])
 
 
+    def test_mapped_required_empty_value_blocks(self):
+        schema = {'fields': [{'key': '#email', 'type': 'email', 'required': True, 'value': ''}]}
+        mapping = {'map': [{'field': '#email', 'action': 'type', 'value': 'candidate@example.com'}]}
+        self.assertIn('unanswered-required:#email', audit_form(schema, schema, mapping, []))
+
+    def test_guarded_required_field_blocks_even_if_checked(self):
+        schema = {'fields': [{'key': '#cert', 'type': 'checkbox', 'required': True, 'checked': True}]}
+        mapping = {'map': [{'field': '#cert', 'action': 'skip', 'guard': 'human-review'}]}
+        self.assertIn('human-review:#cert', audit_form(schema, schema, mapping, []))
+
+    def test_optional_guarded_field_blocks_submit(self):
+        schema = {'fields': [{'key': '#arbitration', 'required': False, 'value': ''}]}
+        mapping = {'map': [{'field': '#arbitration', 'action': 'skip', 'guard': 'human-review'}]}
+        self.assertIn('human-review:#arbitration', audit_form(schema, schema, mapping, []))
+
+
 if __name__ == '__main__':
     unittest.main()

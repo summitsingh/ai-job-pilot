@@ -1,9 +1,9 @@
 # Audit Report: ai-job-pilot Micro-Commits 4263c54..d0a4da5
 
-**Auditor:** Antigravity (Google DeepMind)  
-**Date:** 2026-10-07  
-**Repository:** `https://github.com/summitsingh/ai-job-pilot`  
-**Working Directory:** `/home/summit/ai-job-pilot-audit`  
+**Auditor:** Antigravity (Google DeepMind)
+**Date:** 2026-10-07
+**Repository:** `https://github.com/summitsingh/ai-job-pilot`
+**Working Directory:** `/home/summit/ai-job-pilot-audit`
 **Commit Range Audited:** `4263c54` through `d0a4da5` (11 commits on top of `95ba59f`)
 
 ---
@@ -31,7 +31,7 @@ This audit evaluates 11 micro-commits recently pushed to the public `ai-job-pilo
 - **Commit:** `431f171`
 - **Description:**
   Invariant 8 and repository rules dictate: *"Consent fields are never auto-answered: arbitration agreements, certifications/attestations, background-check and drug-test authorizations, and assessments always stop the run for explicit human approval per application."*
-  
+
   In `templates.py:866-876`, fields matching `GUARD_RE` are evaluated against `PRIVACY_ACK_GUARD_EXC` and `ACK_BAD_RE`:
   ```python
   if PRIVACY_ACK_GUARD_EXC.search(blob) and not ACK_BAD_RE.search(blob):
@@ -130,7 +130,7 @@ This audit evaluates 11 micro-commits recently pushed to the public `ai-job-pilo
    r_major, {"text", "select"})
   ```
   Because `major` already matches `field of study|discipline` and accepts `select`, any dropdown question for "Field of study" or "Discipline" is intercepted by `major`.
-  
+
   `r_major` has a hardcoded option list:
   ```python
   def r_major(f, facts, ats):
@@ -160,7 +160,7 @@ This audit evaluates 11 micro-commits recently pushed to the public `ai-job-pilo
   ```
   `willing-onsite` has field type filter `None` (matches any element type) and precedes `inoffice-willingness`.
   When a form asks a free-text/textarea question such as *"Please describe your willingness to work in-office"*, `willing-onsite` matches first and returns directive `("opt", ["Yes"], "willingness-yes")`.
-  
+
   In `opt_singleton`:
   ```python
   if ftype in ("select", "custom-select"): ...
@@ -191,7 +191,7 @@ This audit evaluates 11 micro-commits recently pushed to the public `ai-job-pilo
   mapped = apply_acknowledge_override(mapped, schema)
   ```
   When deterministic templates match all fields on a form (or mark them with `guard="muse-review"`), `candidates` is empty. Line 446 returns `tmpl` immediately.
-  
+
   Neither `apply_work_auth_select_overrides` nor `apply_acknowledge_override` is called in `templates.py:map_template`. Therefore, on forms that do not require model backup, these overrides never execute.
 - **Recommended Fix:**
   Move the invocations of `apply_work_auth_select_overrides` and `apply_acknowledge_override` into `templates.py:map_template` (step 3), or execute them on `tmpl["map"]` before checking `if not candidates: return tmpl`.

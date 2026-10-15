@@ -439,6 +439,16 @@ def run_job(job, cfg, no_submit, dry_run=False):
     from fill import apply_fill
     res = apply_fill(schema, fmap, port, True,
                      os.path.join(work, "fill.png"))
+    audit_blockers = res.get("audit_blockers")
+    if not isinstance(audit_blockers, list):
+        out.update(status="blocked",
+                   reason="pre-submit audit missing or malformed")
+        return out
+    if audit_blockers:
+        out.update(status="blocked",
+                   reason="pre-submit audit blockers: " +
+                   "; ".join(str(item) for item in audit_blockers[:10]))
+        return out
     per = res.get("per_field", [])
     applied_n = sum(1 for p in per if p.get("applied"))
     log("fill: %d/%d applied" % (applied_n, len(per)))
@@ -475,7 +485,8 @@ def run_job(job, cfg, no_submit, dry_run=False):
 
     # 6b. required fields must all be filled
     by_key = {f["key"]: f for f in schema.get("fields", [])}
-    filled = {p["field"] for p in per if p.get("applied")}
+    filled = {p["field"] for p in per
+              if p.get("applied") and p.get("verified") is True}
     missing = [k for k, f in by_key.items()
                if f.get("required") and k not in filled]
     if missing:
