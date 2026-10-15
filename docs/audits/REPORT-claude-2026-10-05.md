@@ -8,8 +8,8 @@ I've finished the sweep and am writing up the report now. Git history couldn't b
 
 | # | Location | Snippet | Status |
 |---|---|---|---|
-| 1 | `test_offline.py:114` | `matches("[REDACTED PHONE]", "([REDACTED PHONE]")` | Looks like a real phone number. The changed version replaces it with `5551234567` / `(555) 123-4567`. |
-| 2 | `docs/ats-notes.md:94-95` | ``([REDACTED PHONE]` vs `[REDACTED PHONE]` `` | Same number. The changed version (lines 99-100) is clean. |
+| 1 | `test_offline.py:114` | `matches("[REDACTED PHONE]", "[REDACTED PHONE]")` | Looks like a real phone number. The changed version replaces it with `5551234567` / `(555) 123-4567`. |
+| 2 | `docs/ats-notes.md:94-95` | ``[REDACTED PHONE]` vs `[REDACTED PHONE]` `` | Same number. The changed version (lines 99-100) is clean. |
 | 3 | `pyproject.toml:12` | `authors = [{ name = "Summit Singh Thakur" }]` | Real personal name. |
 | 4 | `LICENSE:3` | `Copyright (c) 2026 Summit Singh Thakur` | Same name. This is normal for an MIT licence, but your rules say to flag it, so please confirm it's intended. |
 | 5 | `test_indeed.py:10-11, 22-23` | `mac-mini Chrome (port 19446)`, `ATS_HOST_SSH=~/workspace/bin/macmini-ssh` | Machine-specific hostname and script path. `SYNC.md` says to scrub these. |
@@ -69,4 +69,4 @@ I've finished the sweep and am writing up the report now. Git history couldn't b
 - The only `*.pre-wire-backup` files on the machine are in `/home/summit/job-harness/harness/` and `/home/summit/harness-run/harness/`, which are outside the audited trees.
 - `SYNC.md` and `sync-from-private.sh` mention the excluded filenames as text only.
 
-VERDICT: BLOCKED - the old real phone number `([REDACTED PHONE]` is in the pushed tree's `test_offline.py` and `docs/ats-notes.md` and may be in git history, the real name and `mac-mini` / `macmini-ssh` references are still in `LICENSE`, `pyproject.toml`, `test_indeed.py`, `test_templates.py` and `fill.py`, and git history was not inspected. The new and changed files themselves are clean. Once those items are resolved, or the name and the other references are confirmed as intended, it's safe to push.
+VERDICT: BLOCKED - the old real phone number `[REDACTED PHONE]` is in the pushed tree's `test_offline.py` and `docs/ats-notes.md` and may be in git history, the real name and `mac-mini` / `macmini-ssh` references are still in `LICENSE`, `pyproject.toml`, `test_indeed.py`, `test_templates.py` and `fill.py`, and git history was not inspected. The new and changed files themselves are clean. Once those items are resolved, or the name and the other references are confirmed as intended, it's safe to push.
