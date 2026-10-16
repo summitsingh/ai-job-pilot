@@ -33,16 +33,19 @@ from schema_dump import DUMP_JS
 TEXT_TYPES = {"text", "email", "tel", "url", "number", "password", "textarea"}
 
 
-def pre_submit_blockers(audit_blockers, mismatched):
+def pre_submit_blockers(audit_blockers, mismatched, failed_trusted=()):
     """Treat every intended-but-unverified fill as a submit blocker.
 
-    The required-field audit can legitimately ignore optional fields, but a
-    failed mapped fill is never safe to submit (including radios whose group
-    is not surfaced as required by the ATS DOM).
+    Also fail closed when trusted typing itself fails; the visible DOM can
+    still match while a controlled ATS form has not accepted the value.
     """
     blockers = list(audit_blockers or [])
     for field in mismatched or []:
         marker = f"unverified-fill:{field}"
+        if marker not in blockers:
+            blockers.append(marker)
+    for field in failed_trusted or []:
+        marker = f"trusted-input-failed:{field}"
         if marker not in blockers:
             blockers.append(marker)
     return blockers
@@ -588,32 +591,40 @@ def matches(expected, actual):
 TRUSTED_TEXT_TYPES = {"text", "email", "tel", "url", "textarea"}
 
 
-def retry_mismatched_text(port, text_items, by_key):
-    """Retry only text controls whose live DOM value missed the mapped value."""
+def retry_mismatched_text(port, text_items, by_key, always_type=False):
+    """Use trusted typing for mismatches, or every item when explicitly forced."""
     if not text_items:
         return {}
     rb_items = [{"key": item["key"],
                  "type": by_key.get(item["key"], {}).get("type", ""),
                  "option_label": ""} for item in text_items]
-    try:
-        live = cdp_ok(port, "evalb64",
-                      b64(readback_js(b64(json.dumps(rb_items)))),
-                      timeout=120).get("result", [])
-    except Exception:
-        return {}
-    if not isinstance(live, list):
-        return {}
-    live_by_key = {item.get("key"): item for item in live
-                   if isinstance(item, dict)}
+    live_by_key = {}
+    if not always_type:
+        try:
+            live = cdp_ok(port, "evalb64",
+                          b64(readback_js(b64(json.dumps(rb_items)))),
+                          timeout=120).get("result", [])
+        except Exception:
+            return {}
+        if not isinstance(live, list):
+            return {}
+        live_by_key = {item.get("key"): item for item in live
+                       if isinstance(item, dict)}
     retried = {}
     for item in text_items:
         state = live_by_key.get(item["key"], {})
-        if not state.get("found"):
-            continue
-        if matches(item.get("value", ""), state.get("value", "")):
-            continue
+        if not always_type:
+            if not state.get("found"):
+                continue
+            if matches(item.get("value", ""), state.get("value", "")):
+                continue
         field_type = (by_key.get(item["key"], {}).get("type") or "").lower()
         if field_type not in TRUSTED_TEXT_TYPES:
+            if always_type:
+                retried[item["key"]] = {
+                    "ok": False,
+                    "note": f"trusted-input-fallback-failed:unsupported-type:{field_type}",
+                }
             continue
         ok, error = fill_text_native(port, item["key"], item.get("value", ""))
         retried[item["key"]] = {
@@ -644,10 +655,12 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                               "expected": it["value"],
                               "applied": bool(res.get("ok")),
                               "note": res.get("why", "")})
-        # A successful property-setter call is not proof that a controlled
-        # framework accepted the value. Retry only live DOM mismatches using
-        # trusted keyboard input, then rely on the final readback/audit below.
-        native_retries = retry_mismatched_text(port, text_items, by_key)
+        # The ATS can display a programmatically-set value while retaining an
+        # empty controlled-form state (submission then reports "missing").
+        # Replace every supported text fill with trusted keyboard input, even
+        # when DOM readback matches, then rely on final readback/audit below.
+        native_retries = retry_mismatched_text(
+            port, text_items, by_key, always_type=True)
         for field_result in per_field:
             retry = native_retries.get(field_result["field"])
             if retry:
@@ -912,7 +925,11 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
         blockers = audit_form(schema, live, fmap, mismatched, invalid)
     except Exception as e:
         blockers = ["audit-failed:" + str(e)[:160]]
-    blockers = pre_submit_blockers(blockers, mismatched)
+    failed_trusted = [
+        pf["field"] for pf in per_field
+        if str(pf.get("note", "")).startswith("trusted-input-fallback-failed:")
+    ]
+    blockers = pre_submit_blockers(blockers, mismatched, failed_trusted)
     if blockers:
         notes.append("PRE-SUBMIT BLOCKERS: " + ", ".join(blockers))
 

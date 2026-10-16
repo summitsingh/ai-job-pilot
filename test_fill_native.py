@@ -63,23 +63,18 @@ class NativeTextFillTests(unittest.TestCase):
     @patch("fill.cdp_ok")
     @patch("fill.readback_js", return_value="readback")
     @patch("fill.batch_fill_js", return_value="batch")
-    def test_apply_fill_retries_dom_value_mismatch_and_verifies(self, batch_mock,
-                                                                readback_mock,
-                                                                cdp_ok_mock,
-                                                                cdp_mock,
-                                                                driver_mock,
-                                                                audit_mock):
-        readback_calls = 0
-
+    def test_apply_fill_uses_trusted_typing_and_verifies(self, batch_mock,
+                                                         readback_mock,
+                                                         cdp_ok_mock,
+                                                         cdp_mock,
+                                                         driver_mock,
+                                                         audit_mock):
         def answer_cdp(port, command, payload, **kwargs):
-            nonlocal readback_calls
             if payload == b64("batch"):
                 return {"result": [{"key": "#profile-summary", "ok": True}]}
             if payload == b64("readback"):
-                readback_calls += 1
-                value = "" if readback_calls == 1 else "Example text"
                 return {"result": [{
-                    "key": "#profile-summary", "found": True, "value": value,
+                    "key": "#profile-summary", "found": True, "value": "Example text",
                 }]}
             if payload == b64(fill.native_replace_js("#profile-summary")):
                 return {"result": {"ok": True}}
@@ -139,6 +134,23 @@ class NativeTextFillTests(unittest.TestCase):
 
     @patch("fill.fill_text_native")
     @patch("fill.cdp_ok")
+    def test_force_trusted_typing_when_dom_value_matches(self, cdp_ok_mock,
+                                                         native_mock):
+        cdp_ok_mock.side_effect = AssertionError("forced typing must not depend on readback")
+        native_mock.return_value = (True, "")
+        items = [{"key": "#name", "value": "Summit Singh Thakur"}]
+        by_key = {"#name": {"type": "text"}}
+
+        result = fill.retry_mismatched_text(9450, items, by_key,
+                                            always_type=True)
+
+        self.assertEqual(result, {
+            "#name": {"ok": True, "note": "trusted-input-fallback"},
+        })
+        native_mock.assert_called_once_with(9450, "#name", "Summit Singh Thakur")
+
+    @patch("fill.fill_text_native")
+    @patch("fill.cdp_ok")
     def test_number_field_mismatch_remains_fail_closed(self, cdp_ok_mock,
                                                         native_mock):
         cdp_ok_mock.return_value = {"result": [{
@@ -156,6 +168,12 @@ class NativeTextFillTests(unittest.TestCase):
         self.assertEqual(
             fill.pre_submit_blockers([], ["#required-radio"]),
             ["unverified-fill:#required-radio"],
+        )
+
+    def test_failed_trusted_text_input_blocks_even_if_dom_matches(self):
+        self.assertEqual(
+            fill.pre_submit_blockers([], [], ["#required-name"]),
+            ["trusted-input-failed:#required-name"],
         )
 
     def test_grouped_radio_click_targets_associated_label_geometry(self):
