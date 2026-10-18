@@ -176,6 +176,11 @@ def main():
                 emit({"ok": True})
         elif cmd == "goto":
             ws = page_ws()
+            if os.environ.get("JOBPILOT_TAB_ID"):
+                try:
+                    ws.call("Page.bringToFront")
+                except Exception:
+                    pass
             ws.call("Page.navigate", {"url": b64d(args[0])})
             time.sleep(4)
             emit({"ok": True})
@@ -214,6 +219,11 @@ def main():
         elif cmd == "fclick":
             sel = b64d(args[0])
             ws = page_ws()
+            if os.environ.get("JOBPILOT_TAB_ID"):
+                try:
+                    ws.call("Page.bringToFront")
+                except Exception:
+                    pass
             ws.call("Runtime.evaluate", {"expression":
                 f"(()=>{{const el=document.querySelector({json.dumps(sel)});"
                 f"if(el){{el.scrollIntoView({{block:'center',behavior:'instant'}});return 1;}}return 0;}})()",
@@ -242,6 +252,11 @@ def main():
             # b64 JS must return viewport {x,y} of the point to click
             # (used for react-select: click the container center, not the 4px input)
             ws = page_ws()
+            if os.environ.get("JOBPILOT_TAB_ID"):
+                try:
+                    ws.call("Page.bringToFront")
+                except Exception:
+                    pass
             r = ws.call("Runtime.evaluate", {
                 "expression": b64d(args[0]), "returnByValue": True}, timeout=60)
             pt = r.get("result", {}).get("value", {}) or {}
@@ -262,6 +277,11 @@ def main():
         elif cmd == "ftype":
             sel, text = b64d(args[0]), b64d(args[1])
             ws = page_ws()
+            if os.environ.get("JOBPILOT_TAB_ID"):
+                try:
+                    ws.call("Page.bringToFront")
+                except Exception:
+                    pass
             doc = ws.call("DOM.getDocument", {"depth": -1, "pierce": True})["root"]
             node = ws.call("DOM.querySelector",
                            {"nodeId": doc["nodeId"], "selector": sel})["nodeId"]
@@ -279,6 +299,11 @@ def main():
                      "ArrowUp": (38, "ArrowUp")}
             vk, k = codes[key]
             ws = page_ws()
+            if os.environ.get("JOBPILOT_TAB_ID"):
+                try:
+                    ws.call("Page.bringToFront")
+                except Exception:
+                    pass
             for t in ("keyDown", "keyUp"):
                 p = {"type": t, "key": k, "code": k,
                      "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk}

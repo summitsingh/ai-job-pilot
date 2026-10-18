@@ -159,10 +159,26 @@ def label_blob(f):
                      f.get("question", "")])
 
 
+_NEG_TOKEN_RE = re.compile(r"\b(?:not|no|never|none|decline|non)\b", re.IGNORECASE)
+
+
+def _option_matches(want, opt):
+    """Match an option against a wanted phrase without crossing negation polarity."""
+    w = (want or "").strip().lower()
+    o = (opt or "").strip().lower()
+    if not w or not o:
+        return False
+    if w == o:
+        return True
+    if bool(_NEG_TOKEN_RE.search(w)) != bool(_NEG_TOKEN_RE.search(o)):
+        return False
+    return matches(w, o)
+
+
 def pick_option(field, wants):
     """Pick an option from field["options"] matching any want string.
 
-    Exact case-insensitive first, then matches() contains. Returns the
+    Exact case-insensitive first, then _option_matches() contains. Returns the
     option TEXT (for select value) or None."""
     opts = field.get("options") or []
     for w in wants:
@@ -172,7 +188,7 @@ def pick_option(field, wants):
                 return o
     for w in wants:
         for o in opts:
-            if matches(w, o):
+            if _option_matches(w, o):
                 return o
     return None
 
@@ -233,7 +249,7 @@ def click_option_in_group(gfields, wants, note):
     if not win:
         for w in wants:
             for f, ol in opts:
-                if matches(w, ol):
+                if _option_matches(w, ol):
                     win = f
                     break
             if win:
@@ -262,7 +278,7 @@ def opt_singleton(f, wants, note):
         return ("skip", "", "template-no-matching-option")
     if ftype in ("checkbox", "radio"):
         ol = (f.get("option_label") or "").strip().lower()
-        if any(ol == w.strip().lower() or matches(w, ol) for w in wants):
+        if any(ol == w.strip().lower() or _option_matches(w, ol) for w in wants):
             return ("click", f.get("option_label") or "", note)
         return ("skip", "", "template-no-matching-option")
     return ("skip", "", "template-no-pattern")
@@ -597,7 +613,8 @@ def r_demo_veteran(f, facts, ats):
     value = str(facts.get("veteran") or "").strip()
     if not value:
         return ("do", "skip", "", "missing-fact:veteran")
-    return ("opt", [value, "I am not a veteran", "not a veteran", "No"],
+    return ("opt", [value, "I am not a protected veteran", "I am not a veteran",
+                    "not a veteran", "No"],
             "demographics-from-facts")
 
 
@@ -683,6 +700,27 @@ def r_authorized_yes(f, facts, ats):
     if not facts_affirm_work_auth(facts):
         return ("do", "skip", "", "work-auth-no-fact")
     return ("opt", ["Yes"], "work-auth-authorized-yes")
+
+
+def r_workauth_employer(f, facts, ats):
+    # "U.S. Work Authorization" radio group with employer-scoped options
+    # ("Can work for current employer" vs "Can work for any employer").
+    blob = label_blob(f)
+    if ACK_BAD_RE.search(blob):
+        return None
+    if sponsorship_excluded(blob):
+        return None
+    if not facts_affirm_work_auth(facts):
+        return ("do", "skip", "", "work-auth-no-fact")
+    req = str((facts or {}).get("sponsorship_requirement") or "").strip().lower()
+    wa = str((facts or {}).get("work_authorization") or "").strip().lower()
+    needs_sponsor = bool(
+        (req and req not in ("no", "none", "false", "not required"))
+        or re.search(r"\bh-?1b\b|require\s+sponsorship", wa)
+    )
+    employer_opt = ("Can work for current employer" if needs_sponsor
+                    else "Can work for any employer")
+    return ("opt", ["Yes", employer_opt], "work-auth-authorized-yes")
 
 
 def r_privacy_ack_select(f, facts, ats):
@@ -922,6 +960,10 @@ PATTERNS = [
                 r"have (?:the )?work authorization)"
                 r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))", re.I),
      r_authorized_yes, None),
+    ("workauth-employer",
+     re.compile(r"u\.?s\.?\s+work\s+authorization"
+                r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))", re.I),
+     r_workauth_employer, None),
     # currently living in the country -> Yes
     ("currently-live-us",
      re.compile(r"currently live in the (united states|us|u\.s\.)|currently reside in the (united states|us)", re.I),
@@ -1070,7 +1112,7 @@ def map_template(schema, facts, ats="unknown"):
     # answers it. Keep guarding the "without sponsorship" variants.
     AUTHORIZED_YES_GUARD_EXC = re.compile(
         r"(?:(legally )?authorized to work|have authorization to work|"
-        r"have (?:the )?work authorization)"
+        r"have (?:the )?work authorization|u\.?s\.?\s+work\s+authorization)"
         r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))",
         re.IGNORECASE)
     # Privacy-ack checkboxes have a deterministic answer (acknowledge);

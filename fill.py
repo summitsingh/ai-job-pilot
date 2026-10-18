@@ -347,7 +347,6 @@ def group_option_status_js(scope_sel, inputs_sel, label):
 def group_option_native_click_js(scope_sel, inputs_sel, label):
     """One-shot JS: resolve the grouped option by label, click its <label>
     natively (label.click()), verify the input is checked.
-
     Used for opacity-0 custom checkboxes/radios (Pinecone's demographic
     groups) where coordinate clicks do not toggle the input. Returns
     {ok, checked, already}."""
@@ -375,40 +374,6 @@ def group_option_native_click_js(scope_sel, inputs_sel, label):
             "lbl.scrollIntoView({block:'center', behavior:'instant'}); " +
             "lbl.click(); " +
             "return {ok:true, checked: !!el.checked}; })()")
-    """JS returning the viewport center of the grouped option (radio/checkbox)
-    whose associated label matches `label`. Ashby group ids carry a per-load
-    session UUID and Lever options share one name, so resolution is by label
-    text at fill time, never by dump-time index."""
-    scope_expr = ("document.querySelector(" + json.dumps(scope_sel) + ")"
-                  if scope_sel else "document")
-    return ("(() => { const scope = " + scope_expr +
-            "; if (!scope) return {error:'no-scope'}; " +
-            "const inputs = Array.from(scope.querySelectorAll(" +
-            json.dumps(inputs_sel) + ")); " +
-            "const lab = s => (s||'').trim().toLowerCase(); " +
-            "const want = lab(" + json.dumps(label) + "); " +
-            "const labelOf = el => { try { if (el.labels && el.labels[0]) { " +
-            "const lt = el.labels[0].innerText.trim(); if (lt) return lt; } } catch(e){} " +
-            "const l = el.closest('label'); if (l && l.innerText.trim()) return l.innerText; " +
-            "let n = el.parentElement, d = 0; " +
-            "while (n && d < 4) { const t = (n.innerText||'').trim(); " +
-            "if (t && t.length <= 80) return t; n = n.parentElement; d++; } " +
-            "return ''; }; " +
-            "let el = inputs.find(i => { const t = lab(labelOf(i)); " +
-            "return t && (t === want || t.includes(want) || want.includes(t)); }); " +
-            "if (!el) return {error:'no-label-match', n: inputs.length}; " +
-            # Prefer the associated <label> as the click target: custom
-            # checkbox/radio inputs are often opacity-0 (Pinecone's
-            # demographic checkboxes), so the input's own center is not
-            # clickable; the label is the visible toggle.
-            "let target = el; " +
-            "try { const lbl = (el.labels && el.labels[0]) || el.closest('label'); " +
-            "if (lbl) target = lbl; } catch(e){} " +
-            "target.scrollIntoView({block:'center', behavior:'instant'}); " +
-            "void target.offsetHeight; " +
-            "const r = target.getBoundingClientRect(); " +
-            "const inView = r.y >= 0 && r.y <= window.innerHeight; " +
-            "return {x: r.x + r.width/2, y: r.y + r.height/2, inView: inView}; })()")
 
 
 def resolve_submit_key(port, schema):
@@ -575,8 +540,15 @@ def do_select(port, key, value, field_type="select", is_location=False):
         return False, r.get("error")
     time.sleep(2.2 if is_location else 1.5)
     if is_location:
-        cdp(port, "fkey", "ArrowDown")
-        time.sleep(0.6)
+        try:
+            already_selected = bool(_cdp_value(cdp_ok(port, "evalb64", b64(
+                '(()=>!!document.querySelector(\'[role="option"][aria-selected="true"], .ashby-application-form-input-autocomplete-popup-result[aria-selected="true"]\'))()'
+            ), timeout=30)["result"]))
+        except Exception:
+            already_selected = False
+        if not already_selected:
+            cdp(port, "fkey", "ArrowDown")
+            time.sleep(0.6)
     cdp(port, "fkey", "Enter")
     time.sleep(1.0)
     if is_location:
@@ -856,6 +828,18 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                                 click_note = "label-coordinate-click:" + type(e).__name__
                             if attempt == 0:
                                 time.sleep(0.1)
+                        if not ok2c:
+                            try:
+                                nr = cdp_ok(port, "evalb64",
+                                            b64(group_option_native_click_js(
+                                                scope_sel, inputs_sel, label)),
+                                            timeout=60)["result"]
+                                if isinstance(nr, dict) and nr.get("ok") and (
+                                        nr.get("checked") or nr.get("already")):
+                                    ok2c = True
+                                    click_note = "selected-after-retry"
+                            except Exception:
+                                pass
                     else:
                         r = cdp_ok(port, "evalb64",
                                    b64(group_option_native_click_js(
@@ -936,7 +920,7 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
             try:
                 state = _cdp_value(cdp_ok(port, "evalb64", b64(
                     "(()=>{const h=document.querySelector('#selected-location')"
-                    "||document.querySelector(\'input[name=\"selectedLocation\"]\');"
+                    "||document.querySelector(\\'input[name=\"selectedLocation\"]\\');"
                     "try{const x=JSON.parse(h?.value||'{}');"
                     "if(x.name&&(x.id||(x.address&&x.address.city)))return 'selected';"
                     "}catch(e){}"
