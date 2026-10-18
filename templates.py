@@ -974,7 +974,8 @@ PATTERNS = [
                                   r"\bapis?\b|\bsdks?\b|\bclis?\b).*build", re.I),
      r_essay_devtools, {"text", "textarea"}),
     ("essay-why", re.compile(r"what excites you|why do you want to work|"
-                             r"why.*this (company|role|opportunity)", re.I),
+                             r"why.*this (company|role|opportunity)|"
+                             r"why are you interested in", re.I),
      r_essay_why, {"text", "textarea"}),
     ("essay", re.compile(r"why (do you want|are you|this company)|"
                          r"motivat|cover letter|favorite project|"

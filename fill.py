@@ -483,6 +483,7 @@ def do_native_select(port, key, value):
           " el.selectedIndex = idx;"
           " el.dispatchEvent(new Event('input',{bubbles:true}));"
           " el.dispatchEvent(new Event('change',{bubbles:true}));"
+          " try { if (window.jQuery) window.jQuery(el).trigger('change'); } catch(e){}"
           " return {ok:true, picked: opts[idx].text.trim()}; })()")
     try:
         r = _cdp_value(cdp_ok(port, "evalb64", b64(js), timeout=60)["result"])

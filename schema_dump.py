@@ -291,7 +291,7 @@ DUMP_JS = r"""(() => {
       options: [], value: fieldValue,
     };
     if (type === 'select') {
-      f.options = Array.from(el.options).map(o => (o.text || '').trim()).filter(Boolean).slice(0,300);
+      f.options = Array.from(el.options).map(o => (o.text || '').trim()).filter(Boolean).slice(0,3500);
     }
     if (type === 'radio' || type === 'checkbox') {
       f.option_value = el.value || '';
@@ -344,6 +344,7 @@ DUMP_JS = r"""(() => {
   });
   document.querySelectorAll('[role="combobox"]').forEach(el => {
     if (/^(input|select|textarea)$/i.test(el.tagName)) return;
+    if (el.classList && el.classList.contains('select2-selection')) return;
     push({key: selectorFor(el), tag: el.tagName.toLowerCase(), type: 'custom-select',
       label: labelFor(el) || (el.innerText || '').trim().slice(0,80),
       required: el.getAttribute('aria-required') === 'true',
