@@ -34,17 +34,24 @@ TEXT_TYPES = {"text", "email", "tel", "url", "number", "password", "textarea"}
 
 CAPTCHA_PRESENT_JS = r"""(() => {
   const isVis = el => {
-    if (!el || !el.offsetParent) return false;
+    if (!el) return false;
+    let cur = el;
+    while (cur && cur.nodeType === 1) {
+      const cs = getComputedStyle(cur);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity || '1') === 0) return false;
+      cur = cur.parentElement;
+    }
     const r = el.getBoundingClientRect();
-    return r.width > 2 && r.height > 2;
+    return r.width > 2 && r.height > 2 && r.bottom > 0 && r.right > 0;
   };
   const evidence = [];
-  if (document.querySelector('iframe[src*="recaptcha" i]')) evidence.push('recaptcha-iframe');
-  if (document.querySelector('.g-recaptcha, .grecaptcha-badge') ||
-      Array.from(document.querySelectorAll('[data-sitekey]')).some(
-        el => el.id !== 'h-captcha' || Array.from(el.querySelectorAll('iframe')).some(isVis)))
+  if (Array.from(document.querySelectorAll('iframe[src*="recaptcha" i]')).some(
+        el => isVis(el) && !/size=invisible/i.test(el.src || '')))
+    evidence.push('recaptcha-iframe');
+  if (Array.from(document.querySelectorAll('.g-recaptcha, [data-sitekey]')).some(
+        el => isVis(el) && el.id !== 'h-captcha' && el.getAttribute('data-size') !== 'invisible'))
     evidence.push('recaptcha-widget');
-  if (document.querySelector('textarea[name="g-recaptcha-response"], input[name="g-recaptcha-response"]'))
+  if (Array.from(document.querySelectorAll('textarea[name="g-recaptcha-response"], input[name="g-recaptcha-response"]')).some(isVis))
     evidence.push('recaptcha-response-field');
   if (Array.from(document.querySelectorAll('iframe[src*="hcaptcha" i], [data-hcaptcha-widget-id]')).some(isVis))
     evidence.push('hcaptcha-widget');
