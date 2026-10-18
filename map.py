@@ -216,10 +216,8 @@ def norm_key(k):
     k = re.sub(r"\\(.)", r"\1", k)
     # the model sometimes swaps quote styles in attribute selectors
     k = k.replace("'", '"')
-    # unwrap outer [name="..."] or [id="..."] when comparing
-    m = re.fullmatch(r'\[(?:name|id)="([^"]+)"\]', k, flags=re.IGNORECASE)
-    if m:
-        k = m.group(1)
+    # unwrap leading [name="..."] or [id="..."] when comparing
+    k = re.sub(r'^\[(?:name|id)="([^"]+)"\]', r'\1', k, flags=re.IGNORECASE)
     return k.lower()
 
 

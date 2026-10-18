@@ -291,7 +291,7 @@ DUMP_JS = r"""(() => {
       options: [], value: fieldValue,
     };
     if (type === 'select') {
-      f.options = Array.from(el.options).map(o => (o.text || '').trim()).filter(Boolean).slice(0,60);
+      f.options = Array.from(el.options).map(o => (o.text || '').trim()).filter(Boolean).slice(0,300);
     }
     if (type === 'radio' || type === 'checkbox') {
       f.option_value = el.value || '';

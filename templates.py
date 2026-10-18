@@ -280,6 +280,12 @@ def r_full_name(f, facts, ats):
 
 
 def r_first_name(f, facts, ats):
+    lab = (f.get("label") or "").lower()
+    if "preferred name" in lab and ('selected "no"' in lab or "leave this field blank" in lab):
+        pref = str(facts.get("preferred_name") or "").strip()
+        if not pref or pref.lower() == str(facts.get("first_name") or "").strip().lower():
+            return ("do", "skip", "", "preferred-name-same-as-legal")
+        return ("do", "fill", pref, "identity")
     return ("do", "fill", facts["first_name"], "identity")
 
 
@@ -302,7 +308,21 @@ def r_location(f, facts, ats):
     # Autocomplete comboboxes (Ashby, Wellfound downshift) need the
     # type+wait+pick-suggestion flow; plain text inputs (Lever) take a
     # direct fill (their suggestion pick clears free text on Enter).
-    if (f.get("type") or "").lower() == "custom-select":
+    ftype = (f.get("type") or "").lower()
+    if ftype == "select":
+        city = str(facts.get("city") or "").strip()
+        state = str(facts.get("state") or "").strip()
+        country = str(facts.get("country") or "United States").strip()
+        wants = [w for w in (
+            facts.get("location", ""),
+            f"{city}, {state}, {country}" if city and state else "",
+            f"{city}, {state}" if city and state else "",
+            city,
+            country,
+            f"{country} (Natl)" if country else "",
+        ) if w]
+        return ("opt", wants, "identity")
+    if ftype == "custom-select":
         return ("do", "location", facts["location"], "identity")
     return ("do", "fill", facts["location"], "identity")
 
@@ -718,7 +738,7 @@ def r_inoffice(f, facts, ats):
     ftype = (f.get("type") or "").lower()
     if ftype in ("select", "custom-select"):
         wants = (["Yes, in-office", "onsite", "I already live",
-                  "willing to relocate"] if value.lower() == "yes" else
+                  "willing to relocate", "Yes"] if value.lower() == "yes" else
                  ["No", "not willing", "prefer not"])
         return ("opt", wants, "applicant-preference")
     return ("do", "fill", value, "applicant-preference")
@@ -776,6 +796,8 @@ def r_salary_numeric(f, facts, ats):
 PATTERNS = [
     # identity (full name before first/last)
     ("full-name", re.compile(r"full.?name", re.I), r_full_name, {"text"}),
+    ("preferred-name-same", re.compile(r"preferred name.*same as.*legal name", re.I),
+     lambda f, facts, ats: ("opt", ["Yes"], "identity"), None),
     ("first-name", re.compile(r"first.?name|given.?name|preferred.?name",
                               re.I), r_first_name, {"text"}),
     ("last-name", re.compile(r"last.?name|family.?name|surname", re.I),
@@ -787,7 +809,7 @@ PATTERNS = [
      {"text", "tel"}),
     ("location", re.compile(r"your location|current.?location|\blocation\b|"
                              r"\bcity\b|downshift", re.I),
-     r_location, {"text", "custom-select"}),
+     r_location, {"text", "custom-select", "select"}),
     ("country", re.compile(r"\bcountry\b", re.I), r_country,
      {"select", "custom-select"}),
     ("zip-code", re.compile(r"zip.?code|postal.?code", re.I), r_zip_code,
