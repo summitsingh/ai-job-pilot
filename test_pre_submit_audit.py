@@ -33,7 +33,6 @@ class PreSubmitAuditTests(unittest.TestCase):
         mapping = {'map': [{'field': '#cover', 'action': 'skip'}, {'field': '#city', 'action': 'location', 'value': 'Example City'}]}
         self.assertEqual(audit_form(schema, schema, mapping, []), [])
 
-
     def test_mapped_required_empty_value_blocks(self):
         schema = {'fields': [{'key': '#email', 'type': 'email', 'required': True, 'value': ''}]}
         mapping = {'map': [{'field': '#email', 'action': 'type', 'value': 'candidate@example.com'}]}
@@ -48,6 +47,24 @@ class PreSubmitAuditTests(unittest.TestCase):
         schema = {'fields': [{'key': '#arbitration', 'required': False, 'value': ''}]}
         mapping = {'map': [{'field': '#arbitration', 'action': 'skip', 'guard': 'human-review'}]}
         self.assertIn('human-review:#arbitration', audit_form(schema, schema, mapping, []))
+
+    def test_required_radio_group_satisfied_when_one_option_checked(self):
+        schema = {'fields': [
+            {'key': '[name="cards[abc][field0]"][data-gidx="0"]', 'type': 'radio', 'grouped': True, 'group': 'cards[abc][field0]', 'required': True, 'checked': True},
+            {'key': '[name="cards[abc][field0]"][data-gidx="1"]', 'type': 'radio', 'grouped': True, 'group': 'cards[abc][field0]', 'required': True, 'checked': False},
+        ]}
+        mapping = {'map': [
+            {'field': '[name="cards[abc][field0]"][data-gidx="0"]', 'action': 'click', 'value': 'Yes'},
+            {'field': '[name="cards[abc][field0]"][data-gidx="1"]', 'action': 'skip', 'value': '', 'note': 'template-group-not-picked'},
+        ]}
+        self.assertEqual(audit_form(schema, schema, mapping, []), [])
+
+    def test_required_radio_group_blocks_when_no_option_checked(self):
+        schema = {'fields': [
+            {'key': '[name="cards[abc][field0]"][data-gidx="0"]', 'type': 'radio', 'grouped': True, 'group': 'cards[abc][field0]', 'required': True, 'checked': False},
+            {'key': '[name="cards[abc][field0]"][data-gidx="1"]', 'type': 'radio', 'grouped': True, 'group': 'cards[abc][field0]', 'required': True, 'checked': False},
+        ]}
+        self.assertIn('unanswered-required:[name="cards[abc][field0]"][data-gidx="0"]', audit_form(schema, schema, {'map': []}, []))
 
 
 if __name__ == '__main__':

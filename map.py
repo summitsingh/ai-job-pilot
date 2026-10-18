@@ -109,7 +109,7 @@ WORK_AUTH_ANSWERS = [
     (re.compile(r"will you (now or in the future )?require .*sponsor",
                 re.IGNORECASE),
      "Yes", "sponsorship-required-yes"),
-    (re.compile(r"do you (currently |now )?require .*sponsor",
+    (re.compile(r"do you (currently |now )?(or in the future )?require .*sponsor",
                 re.IGNORECASE),
      "Yes", "sponsorship-required-yes"),
     (re.compile(r"(legally )?authorized to work", re.IGNORECASE),
@@ -126,10 +126,16 @@ def work_auth_override(field, facts=None):
         return None
     if ACK_BAD_RE.search(label):
         return None
+    if facts is None:
+        from templates import FACTS as _default_facts
+        facts = _default_facts
     facts = facts or {}
     sponsorship = str(facts.get("sponsorship_requirement") or "").strip().lower()
-    require_sponsorship = bool(sponsorship and sponsorship not in
-                               ("no", "none", "false", "not required"))
+    wa = str(facts.get("work_authorization") or "").strip().lower()
+    require_sponsorship = bool(
+        (sponsorship and sponsorship not in ("no", "none", "false", "not required"))
+        or re.search(r"\bh-?1b\b|require\s+sponsorship", wa)
+    )
     legally_authorized = facts.get("legally_authorized")
     for pat, answer, note in WORK_AUTH_ANSWERS:
         if not pat.search(label):
@@ -210,6 +216,10 @@ def norm_key(k):
     k = re.sub(r"\\(.)", r"\1", k)
     # the model sometimes swaps quote styles in attribute selectors
     k = k.replace("'", '"')
+    # unwrap outer [name="..."] or [id="..."] when comparing
+    m = re.fullmatch(r'\[(?:name|id)="([^"]+)"\]', k, flags=re.IGNORECASE)
+    if m:
+        k = m.group(1)
     return k.lower()
 
 
@@ -506,6 +516,7 @@ def map_fields(schema, facts, ats="unknown"):
     candidates = [key for key in tmpl["unmapped"] if key not in system_keys] + [
         e["field"] for e in tmpl["map"]
         if e["action"] == "skip" and not e.get("guard")
+        and e.get("note") != "template-group-not-picked"
         and e["field"] not in system_keys
         and e["field"] not in tmpl["unmapped"]]
     if not candidates:
@@ -515,6 +526,7 @@ def map_fields(schema, facts, ats="unknown"):
     # Model answers replace template skips; system fields remain fact-only.
     skip_keys = {e["field"] for e in tmpl["map"]
                  if e["action"] == "skip" and not e.get("guard")
+                 and e.get("note") != "template-group-not-picked"
                  and e["field"] not in system_keys}
     mapped = ([e for e in tmpl["map"] if e["field"] not in skip_keys]
               + model_mapped)

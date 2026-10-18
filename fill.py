@@ -238,7 +238,7 @@ for(const it of items){
   if(it.key==='#location-input'){
     const hidden=el.closest('.application-field')?.querySelector('input[name="selectedLocation"]');
     try{const selected=JSON.parse(hidden?.value||'{}');
-      locationSelected=!!(selected.name&&selected.address&&selected.address.city);
+      locationSelected=!!(selected.name&&(selected.id||(selected.address&&selected.address.city)));
     }catch(e){}
   }
   out.push({key:it.key,found:true,value:val,ariaPressed:ap,
@@ -909,22 +909,49 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                               "note": err3})
 
     # Lever location fields resolve asynchronously and update a hidden
-    # selectedLocation value after the autocomplete selection. Wait briefly
-    # for that structured selection before readback.
-    if any(m["field"] == "#location-input" for m in actions):
-        deadline = time.monotonic() + 5
+    # selectedLocation value after the autocomplete selection. Trigger the
+    # dropdown if needed and click the matching suggestion so selectedLocation
+    # is populated before readback.
+    loc_actions = [m for m in actions if m["field"] == "#location-input"]
+    if loc_actions:
+        loc_val = loc_actions[0].get("value", "")
+        triggered_dd = False
+        deadline = time.monotonic() + 6
         while time.monotonic() < deadline:
             try:
-                state = cdp_ok(port, "evalb64", b64(
-                    "(()=>{const h=document.querySelector('#selected-location');"
+                state = _cdp_value(cdp_ok(port, "evalb64", b64(
+                    "(()=>{const h=document.querySelector('#selected-location')"
+                    "||document.querySelector(\'input[name=\"selectedLocation\"]\');"
                     "try{const x=JSON.parse(h?.value||'{}');"
-                    "return !!(x.name&&x.address&&x.address.city)}catch(e){return false}})()"),
-                    timeout=60)["result"]
-                if state:
+                    "if(x.name&&(x.id||(x.address&&x.address.city)))return 'selected';"
+                    "}catch(e){}"
+                    "const item=document.querySelector('#location-0')"
+                    "||document.querySelector('.dropdown-results .dropdown-location');"
+                    "if(item&&item.offsetParent){"
+                    "item.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));"
+                    "item.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));"
+                    "item.click();"
+                    "return 'clicked';"
+                    "}"
+                    "return '';})()"),
+                    timeout=60)["result"])
+                if state == "selected":
                     break
+                if not state and not triggered_dd and loc_val:
+                    triggered_dd = True
+                    cdp_ok(port, "evalb64", b64(
+                        "(()=>{const el=document.querySelector('#location-input');"
+                        "if(!el)return 0;el.focus();el.value='';"
+                        "el.dispatchEvent(new KeyboardEvent('keydown',{key:'Backspace',bubbles:true}));"
+                        "el.value=" + json.dumps(loc_val) + ";"
+                        "el.dispatchEvent(new Event('input',{bubbles:true}));"
+                        "el.dispatchEvent(new KeyboardEvent('keydown',{key:'X',bubbles:true}));"
+                        "el.dispatchEvent(new KeyboardEvent('keyup',{key:'X',bubbles:true}));"
+                        "return 1;})()"),
+                        timeout=60)
             except Exception:
                 pass
-            time.sleep(0.25)
+            time.sleep(0.3)
 
     # 5) readback + diff
     rb_items = []

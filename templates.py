@@ -537,7 +537,7 @@ def r_yes(f, facts, ats):
     else:
         key = next((k for pattern, k in (
             (r"relocat|move", "willing_relocate"),
-            (r"on.?site|in.?office|in.?person|hybrid", "willing_in_office"),
+            (r"on.?site|in.?office|in.?person|hybrid|\bcommute\b|\boffice\b", "willing_in_office"),
             (r"travel", "willing_travel"),
             (r"flexible.*start|start.*flexible|available.*start",
              "willing_start_date_flexible"),
@@ -623,10 +623,18 @@ def r_signature(f, facts, ats):
 
 def r_sponsorship(f, facts, ats):
     # State a sponsorship requirement only when the applicant recorded it.
-    if not facts.get("sponsorship_requirement"):
+    req = str(facts.get("sponsorship_requirement") or "").strip()
+    wa = str(facts.get("work_authorization") or "").strip()
+    if not req and re.search(r"\bh-?1b\b|require\s+sponsorship", wa, re.I):
+        req = wa
+    if not req:
         return ("do", "skip", "", "missing-fact:sponsorship_requirement")
+    if (f.get("type") or "").lower() in ("text", "textarea"):
+        val = req if req.lower().startswith(("yes", "no")) else f"Yes, {req}"
+        return ("do", "fill", val, "work-auth-sponsorship")
     return ("opt", ["Yes, but will require sponsorship in the future",
-                    "will require sponsorship", "Yes, I will require sponsorship"],
+                    "will require sponsorship", "Yes, I will require sponsorship",
+                    "Yes"],
             "work-auth-sponsorship")
 
 
@@ -864,22 +872,22 @@ PATTERNS = [
     # salary
     ("salary-text", re.compile(r"salary|compensation|pay expectation|"
                                r"desired.*(pay|salary)", re.I), r_salary_text,
-     {"text", "number"}),
+     {"text", "number", "textarea"}),
     ("salary-select", re.compile(r"salary|compensation", re.I),
      r_salary_select, {"select"}),
     # demographics
     ("demo-veteran", re.compile(r"veteran", re.I), r_demo_veteran, None),
     ("demo-disability", re.compile(r"disabilit", re.I), r_demo_disability,
      None),
+    ("demo-race", re.compile(r"\brace\b|racial|eeo\[race\]", re.I), r_demo_race, None),
     ("demo-ethnicity", re.compile(r"hispanic|ethnicity", re.I),
      r_demo_ethnicity, None),
-    ("demo-race", re.compile(r"race|racial", re.I), r_demo_race, None),
     ("demo-gender", re.compile(r"gender", re.I), r_demo_gender, None),
     ("demo-pronouns", re.compile(r"pronouns", re.I), r_demo_pronouns, None),
     # sponsorship-required work auth (Indeed truncated phrasing) -> pick the
     # truthful sponsorship option, never plain "Yes"
     ("workauth-sponsorship",
-     re.compile(r"sponsorship in the future|will require sponsorship|need.*sponsorship", re.I),
+     re.compile(r"sponsorship in the future|will require sponsorship|need.*sponsorship|require.*sponsorship", re.I),
      r_sponsorship, None),
     # identity verification upon hire -> Yes
     ("verify-identity",
