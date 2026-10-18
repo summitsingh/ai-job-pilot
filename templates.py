@@ -55,7 +55,7 @@ import sys
 # for human review.
 ACK_BAD_RE = re.compile(r"arbitrat|background.?check|drug.?test|assessment|"
                         r"criminal|credit.?check|security.?clearance|"
-                        r"true and correct|certif|attest",
+                        r"true and correct|certif|attest|contact additional references",
                         re.IGNORECASE)
 LEGAL_CONSENT_RE = ACK_BAD_RE
 

@@ -469,6 +469,16 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(m["#emp"]["action"], "fill")
         self.assertEqual(m["#emp"]["value"], self.facts["current_employer"])
 
+    def test_reference_contact_consent_stays_guarded(self):
+        schema = {"fields": [
+            {"key": "#ref",
+             "label": "I understand and agree that the company may contact additional references beyond the references you provide to validate your previous employment. || Yes",
+             "option_label": "Yes", "type": "radio"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "ashby"))
+        self.assertEqual(m["#ref"]["action"], "skip")
+        self.assertEqual(m["#ref"].get("guard"), "muse-review")
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):

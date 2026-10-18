@@ -91,7 +91,7 @@ FIELD_MAP_SCHEMA = {
 GUARD_RE = re.compile(
     r"sponsor|visa|authoriz|e-?verify|background.?check|assessment|"
     r"criminal|credit.?check|drug.?test|security.?clearance|"
-    r"arbitrat|certif|attest|"
+    r"arbitrat|certif|attest|contact additional references|"
     r"consent to (collect|store|process)|"
     r"privacy policy|read and understood|i acknowledge",
     re.IGNORECASE)

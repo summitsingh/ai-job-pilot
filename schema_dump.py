@@ -283,11 +283,15 @@ DUMP_JS = r"""(() => {
         if (selected.length) fieldValue = selected.join(', ').slice(0,200);
       }
     }
+    const scopeEl = el.closest ? el.closest('[data-field-path]') : null;
+    const scopeQt = scopeEl ? scopeEl.querySelector('.ashby-application-form-question-title') : null;
+    const scopeReq = !!(scopeQt && /(^|\s|_)required(\s|_|$)/i.test(String(scopeQt.className || '')));
     const f = {
       key: selectorFor(el), tag, type,
       label: cleanLabel((el.name && el.name.indexOf('cards[') === 0 &&
                          cardQuestions[el.name]) || labelFor(el)),
-      required: !!(el.required || el.getAttribute('aria-required') === 'true'),
+      required: !!(el.required || el.getAttribute('aria-required') === 'true' ||
+                   (rawType !== 'file' && scopeReq)),
       options: [], value: fieldValue,
     };
     if (type === 'select') {
@@ -313,7 +317,7 @@ DUMP_JS = r"""(() => {
       // the above.") with the actual attestation in the container text
       // ("I hereby certify..."). Include the container statement so the
       // guard regex sees the consent language.
-      if (rawType === 'checkbox' && scope && !f.grouped) {
+      if ((rawType === 'checkbox' || rawType === 'radio') && scope && !f.grouped) {
         const ctx = (scope.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 280);
         if (ctx && ctx.length > f.option_label.length + 40) {
           f.label = (ctx.toLowerCase().indexOf(f.option_label.toLowerCase().slice(0, 24)) >= 0)
