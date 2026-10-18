@@ -880,7 +880,7 @@ PATTERNS = [
     # willingness: default YES (his Oct 1 posture)
     ("willing-relocate", re.compile(r"relocat|willing to (move|change "
                                     r"location)", re.I), r_yes, None),
-    ("willing-onsite", re.compile(r"on-?site|in.?office|in.?person|hybrid",
+    ("willing-onsite", re.compile(r"on-?site|in(?:to)?(?:\s+the)?\s*office|in.?office|in.?person|hybrid",
                                   re.I), r_yes, None),
     ("willing-travel", re.compile(r"\btravel\b", re.I), r_yes, None),
     ("willing-commute", re.compile(r"\bcommute\b", re.I), r_yes, None),
@@ -932,7 +932,8 @@ PATTERNS = [
     ("privacy-ack-select", re.compile(r"acknowledg|privacy notice|gdpr disclosure", re.I),
      r_privacy_ack_select, {"select", "custom-select"}),
     ("privacy-ack-check", re.compile(r"acknowledg.*privacy|privacy.*acknowledg|"
-                                     r"read and (acknowledge|understood).*privacy", re.I),
+                                     r"read and (acknowledge|understood).*privacy|"
+                                     r"_systemfield_data_consent_ack|recruiting privacy policy", re.I),
      r_privacy_ack_check, {"checkbox", "radio", "yesno-button"}),
     # military spouse / National Guard / Reserves -> No (not a veteran)
     ("military-no",
@@ -968,12 +969,12 @@ PATTERNS = [
     # targeted essays: answered from facts["essays"], never invented.
     # The generic "essay" pattern below skips anything these miss.
     ("essay-llm", re.compile(r"(llm|large language model|agent framework|"
-                             r"tool-?calling|workflow orchestration)", re.I),
+                             r"tool-?calling|workflow orchestration|use of ai|use ai in your)", re.I),
      r_essay_llm, {"text", "textarea"}),
     ("essay-devtools", re.compile(r"experience.*(developer-?facing|developer tools|"
                                   r"\bapis?\b|\bsdks?\b|\bclis?\b).*build", re.I),
      r_essay_devtools, {"text", "textarea"}),
-    ("essay-why", re.compile(r"what excites you|why do you want to work|"
+    ("essay-why", re.compile(r"what excites you|excited to work on|why do you want to work|"
                              r"why.*this (company|role|opportunity)|"
                              r"why are you interested in", re.I),
      r_essay_why, {"text", "textarea"}),
@@ -1076,7 +1077,7 @@ def map_template(schema, facts, ats="unknown"):
     # exempt so the privacy-ack-check pattern answers them. Legal-weight
     # language stays guarded via ACK_BAD_RE in the resolver.
     PRIVACY_ACK_GUARD_EXC = re.compile(
-        r"acknowledg.*privacy|privacy.*acknowledg|read and (acknowledge|understood).*privacy",
+        r"acknowledg.*privacy|privacy.*acknowledg|read and (acknowledge|understood).*privacy|_systemfield_data_consent_ack|recruiting privacy policy",
         re.IGNORECASE)
     for f in fields:
         blob = label_blob(f)
