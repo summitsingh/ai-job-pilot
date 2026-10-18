@@ -234,7 +234,15 @@ for(const it of items){
   else if(type==='file')val=el.files&&el.files.length?('files:'+el.files.length):'no-file';
   else val=(el.value!==undefined?el.value:(el.innerText||'')).trim().slice(0,200);
   const ap=el.getAttribute('aria-pressed');
-  out.push({key:it.key,found:true,value:val,ariaPressed:ap,cls:(el.className||'').toString().slice(0,80)});
+  let locationSelected=false;
+  if(it.key==='#location-input'){
+    const hidden=el.closest('.application-field')?.querySelector('input[name="selectedLocation"]');
+    try{const selected=JSON.parse(hidden?.value||'{}');
+      locationSelected=!!(selected.name&&selected.address&&selected.address.city);
+    }catch(e){}
+  }
+  out.push({key:it.key,found:true,value:val,ariaPressed:ap,
+    locationSelected:locationSelected,cls:(el.className||'').toString().slice(0,80)});
 }
 return out; })()""")
 
@@ -900,6 +908,24 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                               "expected": m["value"], "applied": ok3,
                               "note": err3})
 
+    # Lever location fields resolve asynchronously and update a hidden
+    # selectedLocation value after the autocomplete selection. Wait briefly
+    # for that structured selection before readback.
+    if any(m["field"] == "#location-input" for m in actions):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                state = cdp_ok(port, "evalb64", b64(
+                    "(()=>{const h=document.querySelector('#selected-location');"
+                    "try{const x=JSON.parse(h?.value||'{}');"
+                    "return !!(x.name&&x.address&&x.address.city)}catch(e){return false}})()"),
+                    timeout=60)["result"]
+                if state:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.25)
+
     # 5) readback + diff
     rb_items = []
     for m in actions:
@@ -944,6 +970,10 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
                             pf["actual"] = base
                             break
                         _t.sleep(1.5)
+        elif pf["field"] == "#location-input":
+            city = (pf["expected"] or "").split(",")[0].strip().lower()
+            ok = (bool(r.get("locationSelected")) and bool(city) and
+                  city in (pf["actual"] or "").lower())
         elif pf["action"] == "location":
             # Location autocompletes canonicalize the typed value
             # ("Austin, Texas, United States" -> "Austin, TX, USA"); verify
