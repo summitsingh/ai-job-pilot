@@ -346,7 +346,7 @@ def coerce_action(field, entry):
     """
     ftype = (field.get("type") or "").lower()
     action, value = entry.get("action"), (entry.get("value") or "").strip()
-    if action == "fill" and ftype == "select":
+    if action in ("fill", "click") and ftype in ("select", "custom-select"):
         action = "select"
     elif action == "select" and ftype in (
             "text", "email", "tel", "url", "number", "textarea"):
