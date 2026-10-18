@@ -818,7 +818,7 @@ PATTERNS = [
                                  r"previously (worked|been employed)|worked here before", re.I),
      r_prev_employed, {"select", "custom-select", "radio", "yesno-button"}),
     ("work-eligible", re.compile(r"legally eligible|eligible to work", re.I),
-     r_work_eligible, {"select", "custom-select"}),
+     r_work_eligible, {"select", "custom-select", "radio", "yesno-button"}),
     ("linkedin", re.compile(r"linkedin", re.I), r_linkedin, {"text", "url"}),
     ("github", re.compile(r"github", re.I), r_github, {"text", "url"}),
     ("website", re.compile(r"portfolio|personal website|^website$|"

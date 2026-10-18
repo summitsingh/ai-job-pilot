@@ -112,7 +112,7 @@ WORK_AUTH_ANSWERS = [
     (re.compile(r"do you (currently |now )?(or in the future )?require .*sponsor",
                 re.IGNORECASE),
      "Yes", "sponsorship-required-yes"),
-    (re.compile(r"(legally )?authorized to work", re.IGNORECASE),
+    (re.compile(r"(legally )?(authorized|eligible) to work|legally eligible", re.IGNORECASE),
      "Yes", "legally-authorized-yes"),
 ]
 
