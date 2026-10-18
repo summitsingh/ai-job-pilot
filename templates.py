@@ -807,8 +807,8 @@ PATTERNS = [
     ("email", re.compile(r"e-?mail", re.I), r_email, {"text", "email"}),
     ("phone", re.compile(r"phone|mobile|telephone", re.I), r_phone,
      {"text", "tel"}),
-    ("location", re.compile(r"your location|current.?location|\blocation\b|"
-                             r"\bcity\b|downshift", re.I),
+    ("location", re.compile(r"^(?!.*relocat).*(?:your location|current.?location|\blocation\b|"
+                             r"\bcity\b|downshift)", re.I),
      r_location, {"text", "custom-select", "select"}),
     ("country", re.compile(r"\bcountry\b", re.I), r_country,
      {"select", "custom-select"}),
