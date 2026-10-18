@@ -158,14 +158,22 @@ def main():
     args = argv[1:]
     try:
         if cmd == "reset":
-            for t in [x for x in get_targets() if x.get("type") == "page"]:
-                try:
-                    http_get("/json/close/" + t["id"])
-                except Exception:
-                    pass
-            time.sleep(1)
-            http_put("/json/new?about:blank")
-            emit({"ok": True})
+            prefer = os.environ.get("JOBPILOT_TAB_ID")
+            pages = [x for x in get_targets() if x.get("type") == "page"]
+            if prefer and any(t.get("id") == prefer for t in pages):
+                ws = page_ws()
+                ws.call("Page.navigate", {"url": "about:blank"})
+                time.sleep(0.5)
+                emit({"ok": True})
+            else:
+                for t in pages:
+                    try:
+                        http_get("/json/close/" + t["id"])
+                    except Exception:
+                        pass
+                time.sleep(1)
+                http_put("/json/new?about:blank")
+                emit({"ok": True})
         elif cmd == "goto":
             ws = page_ws()
             ws.call("Page.navigate", {"url": b64d(args[0])})
