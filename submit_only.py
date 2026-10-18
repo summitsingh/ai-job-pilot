@@ -28,7 +28,7 @@ time.sleep(15)
 url = cdp_ok(a.port, "url", timeout=60)["url"]
 text = cdp_ok(a.port, "text", "4000", timeout=60)["text"]
 tl = text.lower()
-confirmed = ("/confirmation" in url) or ("thank you for applying" in tl)
+confirmed = ("/confirmation" in url) or ("/thanks" in url) or ("thank you for applying" in tl) or ("application submitted" in tl)
 print("url:", url)
 print("confirmed:", confirmed)
 print("text_start:", text[:300].replace("\n", " "))

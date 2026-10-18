@@ -32,8 +32,9 @@ def verify(port):
     url = cdp_ok(port, "url")["url"]
     text = cdp_ok(port, "text", "4000")["text"]
     tl = text.lower()
-    rule_hit = ("/confirmation" in url) or ("thank you for applying" in tl) or \
-               ("successfully submitted" in tl) or ("application has been received" in tl)
+    rule_hit = ("/confirmation" in url) or ("/thanks" in url) or ("thank you for applying" in tl) or \
+               ("successfully submitted" in tl) or ("application has been received" in tl) or \
+               ("application submitted" in tl)
     ok, info = model.probe()
     if not ok:
         return {"confirmed": rule_hit, "rule_hit": rule_hit,

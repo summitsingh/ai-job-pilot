@@ -127,16 +127,16 @@ def work_auth_override(field, facts=None):
     if ACK_BAD_RE.search(label):
         return None
     if facts is None:
-        from templates import FACTS as _default_facts
-        facts = _default_facts
-    facts = facts or {}
-    sponsorship = str(facts.get("sponsorship_requirement") or "").strip().lower()
-    wa = str(facts.get("work_authorization") or "").strip().lower()
-    require_sponsorship = bool(
-        (sponsorship and sponsorship not in ("no", "none", "false", "not required"))
-        or re.search(r"\bh-?1b\b|require\s+sponsorship", wa)
-    )
-    legally_authorized = facts.get("legally_authorized")
+        require_sponsorship = True
+        legally_authorized = True
+    else:
+        sponsorship = str(facts.get("sponsorship_requirement") or "").strip().lower()
+        wa = str(facts.get("work_authorization") or "").strip().lower()
+        require_sponsorship = bool(
+            (sponsorship and sponsorship not in ("no", "none", "false", "not required"))
+            or re.search(r"\bh-?1b\b|require\s+sponsorship", wa)
+        )
+        legally_authorized = facts.get("legally_authorized")
     for pat, answer, note in WORK_AUTH_ANSWERS:
         if not pat.search(label):
             continue

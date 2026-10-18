@@ -33,13 +33,20 @@ from schema_dump import DUMP_JS
 TEXT_TYPES = {"text", "email", "tel", "url", "number", "password", "textarea"}
 
 CAPTCHA_PRESENT_JS = r"""(() => {
+  const isVis = el => {
+    if (!el || !el.offsetParent) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 2 && r.height > 2;
+  };
   const evidence = [];
   if (document.querySelector('iframe[src*="recaptcha" i]')) evidence.push('recaptcha-iframe');
-  if (document.querySelector('.g-recaptcha, .grecaptcha-badge, [data-sitekey]'))
+  if (document.querySelector('.g-recaptcha, .grecaptcha-badge') ||
+      Array.from(document.querySelectorAll('[data-sitekey]')).some(
+        el => el.id !== 'h-captcha' || Array.from(el.querySelectorAll('iframe')).some(isVis)))
     evidence.push('recaptcha-widget');
   if (document.querySelector('textarea[name="g-recaptcha-response"], input[name="g-recaptcha-response"]'))
     evidence.push('recaptcha-response-field');
-  if (document.querySelector('iframe[src*="hcaptcha" i], [data-hcaptcha-widget-id]'))
+  if (Array.from(document.querySelectorAll('iframe[src*="hcaptcha" i], [data-hcaptcha-widget-id]')).some(isVis))
     evidence.push('hcaptcha-widget');
   return {present:evidence.length > 0, evidence:evidence};
 })()"""
