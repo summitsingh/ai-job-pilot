@@ -343,6 +343,71 @@ class NativeTextFillTests(unittest.TestCase):
         self.assertFalse(result["submitted"])
         resolve_submit_mock.assert_not_called()
 
+    def test_greenhouse_embed_react_controlled_inputs_persist_via_onchange(self):
+        """Greenhouse embed forms use React controlled components.
+        Values set via descriptor setter must also call React's onChange handler
+        to persist in the controlled form state. This test verifies that
+        batch_fill_js triggers both the descriptor setter AND React's onChange.
+        """
+        # Mock the batched fill call to succeed
+        batched_result = [{"key": "#first-name", "ok": True}, {"key": "#last-name", "ok": True}]
+        
+        # Single readback returns filled values (after trusted fallback runs)
+        filled_readback = [
+            {"key": "#first-name", "found": True, "value": "Summit"},
+            {"key": "#last-name", "found": True, "value": "Thakur"},
+        ]
+        
+        def answer_cdp_ok(port, command, payload, **kwargs):
+            payload_str = payload.decode() if isinstance(payload, bytes) else str(payload)
+            # Decode base64 to check content
+            import base64
+            try:
+                decoded = base64.b64decode(payload_str).decode()
+            except:
+                decoded = payload_str
+            
+            if payload == b64("batch"):
+                return {"result": batched_result}
+            if payload == b64("readback"):
+                return {"result": filled_readback}
+            # native_replace_js call - check decoded content
+            if "querySelector" in decoded or "not-found" in decoded or "select" in decoded:
+                return {"result": {"ok": True}}
+            if payload == b64("live"):
+                return {"result": {"fields": []}}
+            return {"result": []}
+
+        with (
+            patch.object(fill, "ensure_driver"),
+            patch.object(fill, "cdp_ok", side_effect=answer_cdp_ok),
+            patch.object(fill, "cdp", return_value={"ok": True}) as cdp_mock,
+            patch.object(fill, "batch_fill_js", return_value="batch"),
+            patch.object(fill, "readback_js", return_value="readback"),
+            patch.object(fill, "audit_form", return_value=[]),
+            patch.object(fill, "DUMP_JS", "live"),
+            patch.object(fill.time, "sleep", return_value=None),
+        ):
+            schema = {"fields": [
+                {"key": "#first-name", "label": "First Name", "type": "text", "required": True},
+                {"key": "#last-name", "label": "Last Name", "type": "text", "required": True},
+            ]}
+            fmap = {"map": [
+                {"field": "#first-name", "action": "fill", "value": "Summit"},
+                {"field": "#last-name", "action": "fill", "value": "Thakur"},
+            ]}
+            result = fill.apply_fill(schema, fmap, 9450, True, "")
+
+        # Both fields should be filled and verified
+        self.assertEqual(set(result["fields_filled"]), {"#first-name", "#last-name"})
+        self.assertEqual(result["fields_mismatched"], [])
+        
+        # Verify trusted fallback was called (ftype + Tab for each field)
+        # Each field gets: ftype + Tab = 2 calls per field via cdp() not cdp_ok()
+        ftype_calls = [c for c in cdp_mock.call_args_list if c[0][1] == "ftype"]
+        self.assertEqual(len(ftype_calls), 2)
+        tab_calls = [c for c in cdp_mock.call_args_list if c[0][1] == "fkey" and c[0][2] == "Tab"]
+        self.assertEqual(len(tab_calls), 2)
 
 if __name__ == "__main__":
     unittest.main()

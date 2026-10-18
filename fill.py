@@ -67,8 +67,40 @@ for (const it of items) {
     const proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
     const desc=Object.getOwnPropertyDescriptor(proto,'value');
     if(desc&&desc.set)desc.set.call(el,it.value);else el.value=it.value;
+    // Call React's onChange directly if it exists (React controlled components)
+    const reactKey = Object.keys(el).find(k => k.startsWith('__reactProps') || k.startsWith('__reactInternalInstance') || k.startsWith('__reactFiber'));
+    if (reactKey) {
+      const props = el[reactKey];
+      if (props && typeof props.onChange === 'function') {
+        const event = {
+          target: {value: it.value, name: el.name},
+          currentTarget: el,
+          bubbles: true,
+          preventDefault: () => {},
+          stopPropagation: () => {}
+        };
+        props.onChange(event);
+      }
+    }
+    // Also check for onInput handler
+    if (reactKey) {
+      const props = el[reactKey];
+      if (props && typeof props.onInput === 'function') {
+        const event = {
+          target: {value: it.value, name: el.name},
+          currentTarget: el,
+          bubbles: true,
+          preventDefault: () => {},
+          stopPropagation: () => {}
+        };
+        props.onInput(event);
+      }
+    }
+    // Fire standard events
+    el.dispatchEvent(new Event('focus',{bubbles:true}));
     el.dispatchEvent(new Event('input',{bubbles:true}));
     el.dispatchEvent(new Event('change',{bubbles:true}));
+    el.dispatchEvent(new Event('blur',{bubbles:true}));
     out.push({key:it.key,ok:true});
   }catch(e){out.push({key:it.key,ok:false,why:String(e).slice(0,120)});}
 }
