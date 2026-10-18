@@ -864,8 +864,9 @@ PATTERNS = [
     ("resume", re.compile(r"resume|\bcv\b|curriculum vitae", re.I), r_resume,
      {"file"}),
     # employment
-    ("current-company", re.compile(r"current (company|employer)|employer name",
-                                   re.I), r_current_company, {"text"}),
+    ("current-company", re.compile(
+        r"current (?:or (?:previous|past|former|most recent) )?(?:company|employer)|employer name",
+        re.I), r_current_company, {"text"}),
     ("current-title", re.compile(r"current (job )?title|job title", re.I),
      r_current_title, {"text"}),
     # years of experience: generic total only (tech-specific -> skip).

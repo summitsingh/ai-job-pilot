@@ -460,6 +460,15 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(m["#e"]["action"], "fill")
         self.assertEqual(m["#e"]["value"], "I build ML systems.")
 
+    def test_current_or_previous_employer_from_facts(self):
+        schema = {"fields": [
+            {"key": "#emp", "label": "Who is your current or previous employer?",
+             "type": "text"},
+        ]}
+        m = mapped(map_template(schema, self.facts, "ashby"))
+        self.assertEqual(m["#emp"]["action"], "fill")
+        self.assertEqual(m["#emp"]["value"], self.facts["current_employer"])
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):
