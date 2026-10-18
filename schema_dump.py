@@ -270,12 +270,25 @@ DUMP_JS = r"""(() => {
     if (tag === 'textarea') type = 'textarea';
     // Greenhouse react-select comboboxes render as text inputs: treat as custom-select
     if (el.getAttribute('role') === 'combobox') type = 'custom-select';
+    let fieldValue = String(el.value || '').slice(0,200);
+    // Greenhouse react-select exposes its selected option in the control,
+    // while the combobox input's value remains empty. Read the rendered
+    // selected label so the live pre-submit audit can verify the real choice.
+    if (el.getAttribute('role') === 'combobox') {
+      const ctl = el.closest('.select__control');
+      if (ctl) {
+        const selected = Array.from(ctl.querySelectorAll(
+          '.select__single-value,.select__multi-value__label'))
+          .map(x => (x.innerText || '').trim()).filter(Boolean);
+        if (selected.length) fieldValue = selected.join(', ').slice(0,200);
+      }
+    }
     const f = {
       key: selectorFor(el), tag, type,
       label: cleanLabel((el.name && el.name.indexOf('cards[') === 0 &&
                          cardQuestions[el.name]) || labelFor(el)),
       required: !!(el.required || el.getAttribute('aria-required') === 'true'),
-      options: [], value: String(el.value || '').slice(0,200),
+      options: [], value: fieldValue,
     };
     if (type === 'select') {
       f.options = Array.from(el.options).map(o => (o.text || '').trim()).filter(Boolean).slice(0,60);

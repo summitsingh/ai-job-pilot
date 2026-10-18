@@ -248,7 +248,8 @@ def react_select_state_js(input_expr, wanted):
             "(o => o && (o.label != null ? o.label : o.value)); " +
             "const valLabel = v => { if (v && typeof v === 'object') return norm(getLabel(v)); " +
             "const o = options.find(x => String(x.value) === String(v)); return norm(o ? getLabel(o) : v); }; " +
-            "const current = Array.isArray(p.value) ? p.value : (p.value == null || p.value === '' ? [] : [p.value]); " +
+            "let raw = p.value; if ((raw == null || raw === '') && p.selectProps && p.selectProps.value != null) raw = p.selectProps.value; " +
+            "const current = Array.isArray(raw) ? raw : (raw == null || raw === '' ? [] : [raw]); " +
             "const labels = current.map(valLabel); " +
             "const matches = wanted.every(w => labels.includes(norm(w))) && " +
             "(p.isMulti || (p.selectProps && p.selectProps.isMulti) ? labels.length === wanted.length : labels.length === 1); " +
@@ -257,6 +258,12 @@ def react_select_state_js(input_expr, wanted):
 
 
 def _commit_react_select(port, input_expr, wanted, field_key):
+    # A trusted menu-option click normally updates react-select's controlled
+    # value. Verify that state first. Calling the parent callback again after
+    # that update can throw in some Greenhouse forms and undo a valid fill.
+    state = _eval_js(port, react_select_state_js(input_expr, wanted))
+    if isinstance(state, dict) and state.get("ok") and state.get("matches"):
+        return {"ok": True, "already_committed": True}
     result = _eval_js(port, react_select_commit_js(input_expr, wanted))
     if not isinstance(result, dict) or not result.get("ok"):
         why = result.get("why", "invalid-result") if isinstance(result, dict) else "no-result"
