@@ -37,42 +37,35 @@ Rules:
 1. Use ONLY the facts in APPLICANT FACTS. Never invent experience, skills, dates, compensation history, education, or work authorization.
 2. If a field asks something not in the facts, or offers no matching option, use action "skip".
 3. Phone: digits only, e.g. 5551234567.
-4. Demographics: veteran = "I am not a veteran" (or closest option);
-   disability = "no" (or "I don't have a disability" / equivalent);
-   ethnicity = "not Hispanic or Latino" (never pick "Hispanic or Latino").
-   Race and gender: NEVER choose a specific race or gender (do not infer from
-   name, photo, or anything else); click "Decline to self-identify" when that
-   option exists, otherwise skip.
-5. Pronouns: "I prefer not to say" when that option exists.
+4. Demographics: use veteran, disability, and ethnicity facts only when those
+   keys are explicitly present. Race and gender: NEVER choose a specific race
+   or gender; click "Decline to self-identify" when available, otherwise skip.
+5. Pronouns: use facts['pronouns'] only when present; otherwise skip.
 6. "How did you hear about us": use the job_source in the facts. If it is a
    checkbox group (one field per source), use action "click" on ONLY the
    checkbox whose label matches the job_source (e.g. LinkedIn); leave the
    others unmapped. If it is a select, choose the matching option text.
-7. Previously employed at the company: No.
+7. Previously employed at the company: use facts['previously_employed_here']
+   only when present; otherwise skip.
 8. Education: use the facts.json "education" entries (school, degree, end year).
 9. Free-text questions about motivation, "why this company", or anything subjective: skip.
 10. Cover letter fields: skip.
-11. Referral: facts['referral'] names a referrer for X/xAI ONLY. For any other
-    company, or when the facts name no referrer for THIS company: the
-    "were you referred" question gets action "select" value "No" (or "skip"
-    if unsure), and the referrer-name question gets "skip". NEVER invent a
-    referrer.
+11. Referral: use facts['referral'] only when the referrer and relationship
+    to this company are explicitly known; otherwise skip both referral fields.
+    NEVER invent a referrer or infer "No" from missing facts.
 12. Copy "field" keys EXACTLY as given in the FORM FIELDS list.
 13. Willingness/commitment questions (hybrid/in-office/relocate/travel,
-    flexible start): answer per the facts willing_hybrid, willing_in_office,
-    willing_relocate, willing_travel, willing_start_date_flexible (all true):
-    click/select "Yes". "When can you start a new role?" / start-date fields:
-    use facts['start_date'] only when explicitly present; otherwise skip
-    (never invent a date).
+    flexible start): use only the matching facts key when present; otherwise
+    skip. "When can you start a new role?" / start-date fields: use
+    facts['start_date'] only when explicitly present; otherwise skip.
 14. Ashby yes/no questions appear as PAIRED button fields (keys ending
     [data-option="yes"] and [data-option="no"] with the same question label):
     use action "click" on the correct option's key ONLY, never both.
     Radio/checkbox groups appear as one field per option (option_label set):
     use action "click" on ONLY the matching option's key. EEO demographic
-    radios: pronouns = "I prefer not to say" if present; veteran = the
-    "not a veteran" option; disability = "no"; ethnicity = "not Hispanic or
-    Latino"; race and gender: NEVER a specific race/gender - click "Decline
-    to self-identify" when present, otherwise skip. Legal consent checkboxes
+    radios: use demographic facts only when present; race and gender: NEVER
+    a specific race/gender - click "Decline to self-identify" when present,
+    otherwise skip. Legal consent checkboxes
     (arbitration agreement, "certify ... true and correct", background-check
     or assessment consent): skip - they are forced to skip for review anyway.
 15. "How many years of experience" numeric fields: answer with a plain
@@ -124,7 +117,7 @@ WORK_AUTH_ANSWERS = [
 ]
 
 
-def work_auth_override(field):
+def work_auth_override(field, facts=None):
     """Return (option_label_to_click, note) for standard work-auth questions,
     or None if the question doesn't match a known pattern."""
     from templates import ACK_BAD_RE, sponsorship_excluded
@@ -133,9 +126,20 @@ def work_auth_override(field):
         return None
     if ACK_BAD_RE.search(label):
         return None
+    facts = facts or {}
+    sponsorship = str(facts.get("sponsorship_requirement") or "").strip().lower()
+    require_sponsorship = bool(sponsorship and sponsorship not in
+                               ("no", "none", "false", "not required"))
+    legally_authorized = facts.get("legally_authorized")
     for pat, answer, note in WORK_AUTH_ANSWERS:
-        if pat.search(label):
-            return answer, note
+        if not pat.search(label):
+            continue
+        if note == "sponsorship-required-yes":
+            return (answer, note) if require_sponsorship else None
+        if note == "legally-authorized-yes":
+            if legally_authorized is True or str(legally_authorized).strip().lower() == "yes":
+                return answer, note
+            return None
     return None
 
 
@@ -150,9 +154,9 @@ PREV_EMPLOYED_RE = re.compile(
 
 def apply_prev_employed_override(mapped, schema, facts):
     """Deterministically answer 'previously employed here' from facts
-    (facts['previously_employed_here'], standing: "No"). Handles radio
+    (facts['previously_employed_here']). Missing facts stay skipped. Handles radio
     groups and yes/no selects."""
-    want = (facts.get("previously_employed_here") or "No").strip()
+    want = str(facts.get("previously_employed_here") or "").strip()
     by_key = {f["key"]: f for f in schema.get("fields", [])}
     groups = {}
     for e in mapped:
@@ -164,6 +168,12 @@ def apply_prev_employed_override(mapped, schema, facts):
     for (kind, gid), pairs in groups.items():
         qlabel = (pairs[0][1].get("label") or "")
         if not PREV_EMPLOYED_RE.search(qlabel):
+            continue
+        if not want:
+            for e, _ in pairs:
+                e["action"] = "skip"
+                e["value"] = ""
+                e["note"] = "missing-fact:previously_employed_here"
             continue
         if kind == "radio":
             matched = False
@@ -512,8 +522,8 @@ def map_fields(schema, facts, ats="unknown"):
     unmapped = [k for k in candidates if k not in model_seen] + missing_system
     mapped = dedupe_source_checkboxes(mapped, schema, facts)
     mapped = dedupe_radio_clicks(mapped, schema)
-    mapped = apply_work_auth_overrides(mapped, schema)
-    mapped = apply_work_auth_select_overrides(mapped, schema)
+    mapped = apply_work_auth_overrides(mapped, schema, facts)
+    mapped = apply_work_auth_select_overrides(mapped, schema, facts)
     mapped = apply_acknowledge_override(mapped, schema)
     mapped = apply_prev_employed_override(mapped, schema, facts)
     return {"map": mapped, "skipped_by_guard": guarded, "unmapped": unmapped,
@@ -563,7 +573,7 @@ def _map_with_model(schema, facts, field_keys):
     return mapped, guarded, seen
 
 
-def apply_work_auth_overrides(mapped, schema):
+def apply_work_auth_overrides(mapped, schema, facts=None):
     """Apply hardcoded standing-fact answers to standard work-auth questions,
     overriding guard skips. Groups fields by radio group; for each group whose
     question matches a known pattern, click the matching option."""
@@ -577,7 +587,7 @@ def apply_work_auth_overrides(mapped, schema):
     for g, pairs in groups.items():
         # check if the question matches a known work-auth pattern
         qlabel = (pairs[0][1].get("label") or "")
-        override = work_auth_override({"label": qlabel})
+        override = work_auth_override({"label": qlabel}, facts)
         if not override:
             continue
         want_opt, note = override
@@ -608,7 +618,7 @@ def apply_work_auth_overrides(mapped, schema):
     return mapped
 
 
-def apply_work_auth_select_overrides(mapped, schema):
+def apply_work_auth_select_overrides(mapped, schema, facts=None):
     """Extend work-auth overrides to select/custom-select fields (Greenhouse
     uses custom dropdowns for sponsorship questions). For each select whose
     label matches a known work-auth pattern, choose the option matching the
@@ -620,7 +630,7 @@ def apply_work_auth_select_overrides(mapped, schema):
         ftype = (f.get("type") or "").lower()
         if ftype not in ("select", "custom-select"):
             continue
-        override = work_auth_override({"label": f.get("label") or ""})
+        override = work_auth_override({"label": f.get("label") or ""}, facts)
         if not override:
             continue
         want_opt, note = override

@@ -23,7 +23,7 @@ Architecture:
   option whose label matches the wanted answer is clicked/picked, the rest
   are skipped. Reuses map.dedupe_radio_clicks / dedupe_source_checkboxes.
 
-Screening answers (standing facts only, from facts.json):
+Screening answers (facts only, from facts.json):
 - years of experience -> numeric value; years selects -> best "N+"-style option.
 - current title/employer and previous title/employer from facts.json.
 - education (schools, degrees) from facts.json "education" entries.
@@ -31,12 +31,11 @@ Screening answers (standing facts only, from facts.json):
   (hardcoded, the model never decides this).
 - email/phone from facts.json (phone digits only).
 - salary expectation text from facts.json; selects pick the matching option.
-- veteran/disability/ethnicity answers from facts.json; race/gender declined;
-  pronouns from facts.json.
+- veteran/disability/ethnicity/pronouns only when explicitly present in facts;
+  race/gender declined when that option exists.
 - signature: facts.json "full_name".
-- self-assessment 1-10 scales -> "10".
-- default YES on willingness (relocate, onsite/hybrid, travel, flexible start).
-- AI-agent disclosure -> No. Previously employed here -> No.
+- self-assessments, AI-use disclosures, previous-employer answers, and
+  willingness answers are skipped unless explicitly present in facts.json.
 - background-check consent, drug-test consent, assessments -> skip.
 - Never invent experience/skills/credentials; tech-specific years -> skip.
 
@@ -320,8 +319,10 @@ def r_zip_code(f, facts, ats):
 
 
 def r_prev_employed(f, facts, ats):
-    # "Have you previously worked here" -> facts, default No.
-    want = (facts.get("previously_employed_here") or "No").strip()
+    # Never assume No when the applicant has not provided an answer.
+    want = str(facts.get("previously_employed_here") or "").strip()
+    if not want:
+        return ("do", "skip", "", "missing-fact:previously_employed_here")
     return ("opt", [want, "I have not", "No"], "prev-employed")
 
 
@@ -485,46 +486,79 @@ def r_salary_text(f, facts, ats):
     if re.search(r"current salary|previous salary|salary history", lab):
         return ("do", "skip", "", "salary-history-no-fact")
     if (f.get("type") or "").lower() == "number":
-        # numeric salary field: midpoint of the facts.json salary range
-        return ("do", "fill", str(facts.get("salary_midpoint", "")),
-                "salary-midpoint-of-range")
+        # A stated minimum is truthful for a numeric salary expectation.
+        value = facts.get("salary_midpoint") or facts.get("salary_minimum")
+        if not value:
+            return ("do", "skip", "", "salary-no-numeric-fact")
+        return ("do", "fill", str(value), "salary-expectation")
     return ("do", "fill", facts["salary_expectation"], "salary")
 
 
 def r_salary_select(f, facts, ats):
     opts = f.get("options") or []
-    for o in opts:
-        if "180" in o:
-            return ("do", "select", o, "salary")
+    floor = facts.get("salary_minimum")
+    if floor:
+        floor = float(floor)
+        candidates = []
+        for o in opts:
+            amounts = []
+            for number, suffix in re.findall(
+                    r"\$?\s*(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*([kK]?)", o):
+                amount = float(number.replace(",", ""))
+                amounts.append(amount * (1000 if suffix.lower() == "k" else 1))
+            if amounts and min(amounts) >= floor:
+                candidates.append((min(amounts), o))
+        if candidates:
+            return ("do", "select", min(candidates)[1], "salary-minimum")
     return ("do", "skip", "", "salary-no-matching-band")
 
 
 def r_self_assess(f, facts, ats):
-    """1-10 proficiency scales -> "10" (his stated self-assessment is 9-10).
-
-    Only fires when the options are numeric 1-10 or the field is numeric."""
+    """Use only an explicit applicant self-assessment."""
+    value = facts.get("self_assessment")
+    if value in (None, ""):
+        return ("do", "skip", "", "missing-fact:self_assessment")
     opts = [o.strip() for o in (f.get("options") or [])]
     if opts and all(re.fullmatch(r"\d{1,2}", o) for o in opts):
-        if "10" in opts:
-            return ("opt", ["10"], "self-assessment-9-10")
-        return None
+        if str(value) in opts:
+            return ("opt", [str(value)], "self-assessment")
+        return ("do", "skip", "", "self-assessment-no-matching-option")
     if f.get("type") == "number":
-        return ("do", "fill", "10", "self-assessment-9-10")
-    return None
+        return ("do", "fill", str(value), "self-assessment")
+    return ("do", "skip", "", "self-assessment-no-matching-option")
 
 
 def r_yes(f, facts, ats):
-    return ("opt", ["Yes"], "willingness-yes")
+    blob = label_blob(f).lower()
+    if re.search(r"currently (?:live|reside)|currently live in", blob):
+        value = "Yes" if str(facts.get("country", "")).lower() in {
+            "united states", "usa", "us", "u.s.", "united states of america"
+        } else ""
+    else:
+        key = next((k for pattern, k in (
+            (r"relocat|move", "willing_relocate"),
+            (r"on.?site|in.?office|in.?person|hybrid", "willing_in_office"),
+            (r"travel", "willing_travel"),
+            (r"flexible.*start|start.*flexible|available.*start",
+             "willing_start_date_flexible"),
+        ) if re.search(pattern, blob)), None)
+        value = str(facts.get(key) or "").strip() if key else ""
+    if value.lower() in ("yes", "no"):
+        return ("opt", [value], "applicant-preference")
+    return ("do", "skip", "", "missing-fact:applicant-preference")
 
 
 def r_no(f, facts, ats):
-    return ("opt", ["No", "no"], "no")
+    return ("do", "skip", "", "missing-fact:yes-no-answer")
 
 
 def r_check(f, facts, ats):
-    """Check a single opt-in checkbox (e.g. "I'm open to work remotely")."""
+    """Check remote preference only when the applicant explicitly stated it."""
+    if str(facts.get("willing_remote") or "").strip().lower() not in (
+            "yes", "true", "1"):
+        return ("do", "skip", "", "missing-fact:willing_remote")
     return ("do", "click", f.get("option_label") or f.get("label") or "",
-            "opt-in-check")
+            "applicant-preference")
 
 
 def r_password_skip(f, facts, ats):
@@ -533,23 +567,32 @@ def r_password_skip(f, facts, ats):
 
 
 def r_how_hear(f, facts, ats):
-    return ("opt", [facts["job_source"]], "job-source")
+    value = str(facts.get("job_source") or "").strip()
+    if not value:
+        return ("do", "skip", "", "missing-fact:job_source")
+    return ("opt", [value], "job-source")
 
 
 def r_demo_veteran(f, facts, ats):
-    return ("opt", ["I am not a veteran", "I do not identify as a veteran",
-                    "not a veteran", "No", "I AM NOT A VETERAN"],
-            "demographics")
+    value = str(facts.get("veteran") or "").strip()
+    if not value:
+        return ("do", "skip", "", "missing-fact:veteran")
+    return ("opt", [value, "I am not a veteran", "not a veteran", "No"],
+            "demographics-from-facts")
 
 
 def r_demo_disability(f, facts, ats):
-    return ("opt", ["I don't have a disability", "I do not have a disability",
-                    "no disability", "No", "NO"], "demographics")
+    value = str(facts.get("disability") or "").strip()
+    if not value:
+        return ("do", "skip", "", "missing-fact:disability")
+    return ("opt", [value], "demographics-from-facts")
 
 
 def r_demo_ethnicity(f, facts, ats):
-    return ("opt", ["not Hispanic or Latino", "No, not Hispanic or Latino",
-                    "Not Hispanic or Latino", "NO"], "demographics")
+    value = str(facts.get("ethnicity") or "").strip()
+    if not value:
+        return ("do", "skip", "", "missing-fact:ethnicity")
+    return ("opt", [value], "demographics-from-facts")
 
 
 DECLINE_WANTS = ["Decline to self-identify", "I prefer not to answer",
@@ -566,7 +609,10 @@ def r_demo_gender(f, facts, ats):
 
 
 def r_demo_pronouns(f, facts, ats):
-    return ("opt", [facts["pronouns"], "Use name only", "did not provide",
+    value = str(facts.get("pronouns") or "").strip()
+    if not value:
+        return ("do", "skip", "", "missing-fact:pronouns")
+    return ("opt", [value, "Use name only", "did not provide",
                     "Prefer not to disclose", "Decline to self-identify"],
             "demographics")
 
@@ -576,8 +622,9 @@ def r_signature(f, facts, ats):
 
 
 def r_sponsorship(f, facts, ats):
-    # Work-auth sponsorship: pick the "will require sponsorship" option.
-    # Truthful per facts.json work_authorization; never invent status.
+    # State a sponsorship requirement only when the applicant recorded it.
+    if not facts.get("sponsorship_requirement"):
+        return ("do", "skip", "", "missing-fact:sponsorship_requirement")
     return ("opt", ["Yes, but will require sponsorship in the future",
                     "will require sponsorship", "Yes, I will require sponsorship"],
             "work-auth-sponsorship")
@@ -591,8 +638,10 @@ def r_start_date(f, facts, ats):
 
 
 def r_verify_identity(f, facts, ats):
-    # "Can you provide verification of your identity upon hire?" -> Yes.
-    return ("opt", ["Yes"], "identity-verification-yes")
+    value = str(facts.get("identity_verification") or "").strip()
+    if value.lower() not in ("yes", "no"):
+        return ("do", "skip", "", "missing-fact:identity_verification")
+    return ("opt", [value], "identity-verification-from-facts")
 
 
 def r_authorized_yes(f, facts, ats):
@@ -652,14 +701,19 @@ def r_edu_year(f, facts, ats, which):
 
 
 def r_inoffice(f, facts, ats):
-    # In-office / hybrid / onsite willingness: facts-driven, default yes.
+    # In-office/hybrid willingness is never assumed.
+    blob = label_blob(f).lower()
+    key = "willing_hybrid" if "hybrid" in blob else "willing_in_office"
+    value = str(facts.get(key) or "").strip()
+    if value.lower() not in ("yes", "no"):
+        return ("do", "skip", "", "missing-fact:" + key)
     ftype = (f.get("type") or "").lower()
     if ftype in ("select", "custom-select"):
-        return ("opt", ["Yes, in-office", "onsite", "I already live",
-                        "willing to relocate"],
-                "willing-in-office")
-    return ("do", "fill", facts.get("willing_in_office") or
-            "Yes, I am willing to work in-office.", "willing-in-office")
+        wants = (["Yes, in-office", "onsite", "I already live",
+                  "willing to relocate"] if value.lower() == "yes" else
+                 ["No", "not willing", "prefer not"])
+        return ("opt", wants, "applicant-preference")
+    return ("do", "fill", value, "applicant-preference")
 
 
 def _essay(facts, key):
@@ -693,9 +747,7 @@ def r_essay_why(f, facts, ats):
 
 
 def r_military_no(f, facts, ats):
-    # Not a veteran; not military spouse; not National Guard/Reserves.
-    return ("opt", ["No", "I am not a veteran", "not a veteran"],
-            "military-no")
+    return ("do", "skip", "", "missing-fact:military-status")
 
 
 def r_sms_optout(f, facts, ats):
@@ -704,9 +756,10 @@ def r_sms_optout(f, facts, ats):
 
 
 def r_salary_numeric(f, facts, ats):
-    # Salary expectation: numeric midpoint of the facts.json salary range.
-    return ("do", "fill", str(facts.get("salary_midpoint", "")),
-            "salary-expectation-numeric")
+    value = facts.get("salary_midpoint") or facts.get("salary_minimum")
+    if not value:
+        return ("do", "skip", "", "salary-no-numeric-fact")
+    return ("do", "fill", str(value), "salary-expectation-numeric")
 
 
 # Pattern table: (name, regex, handler, applies_to_types_or_None).
@@ -727,7 +780,8 @@ PATTERNS = [
     ("location", re.compile(r"your location|current.?location|\blocation\b|"
                              r"\bcity\b|downshift", re.I),
      r_location, {"text", "custom-select"}),
-    ("country", re.compile(r"\bcountry\b", re.I), r_country, {"select"}),
+    ("country", re.compile(r"\bcountry\b", re.I), r_country,
+     {"select", "custom-select"}),
     ("zip-code", re.compile(r"zip.?code|postal.?code", re.I), r_zip_code,
      {"text", "number"}),
     ("prev-employed", re.compile(r"have you (ever |previously )?(worked|been employed) (at|for|with)|"
@@ -834,7 +888,8 @@ PATTERNS = [
     # "legally authorized to work" (Ashby yes/no buttons, radio groups) ->
     # Yes per facts. Excludes "without sponsorship" phrasing variants.
     ("workauth-authorized",
-     re.compile(r"(?:(legally )?authorized to work|have authorization to work)"
+     re.compile(r"(?:(legally )?authorized to work|have authorization to work|"
+                r"have (?:the )?work authorization)"
                 r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))", re.I),
      r_authorized_yes, None),
     # currently living in the country -> Yes
@@ -982,7 +1037,8 @@ def map_template(schema, facts, ats="unknown"):
     # (Yes); exempt it from guard so the workauth-authorized pattern
     # answers it. Keep guarding the "without sponsorship" variants.
     AUTHORIZED_YES_GUARD_EXC = re.compile(
-        r"(?:(legally )?authorized to work|have authorization to work)"
+        r"(?:(legally )?authorized to work|have authorization to work|"
+        r"have (?:the )?work authorization)"
         r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))",
         re.IGNORECASE)
     # Privacy-ack checkboxes have a deterministic answer (acknowledge);
@@ -1083,7 +1139,7 @@ def map_template(schema, facts, ats="unknown"):
         if q and len(q) > len(f.get("label", "")):
             saved_labels[f["key"]] = f.get("label", "")
             f["label"] = q
-    mapped = apply_work_auth_overrides(mapped, schema)
+    mapped = apply_work_auth_overrides(mapped, schema, facts)
     mapped = apply_prev_employed_override(mapped, schema, facts)
     for f in fields:
         if f["key"] in saved_labels:
