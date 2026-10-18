@@ -13,9 +13,80 @@ import argparse
 import json
 import sys
 import os
+import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import ensure_driver, cdp, cdp_ok, b64
+
+
+def _sentinelone_job_id(url):
+    """Return the numeric Greenhouse job id for a supported SentinelOne page."""
+    try:
+        parsed = urlsplit(str(url or ""))
+        if (parsed.scheme != "https" or parsed.hostname != "www.sentinelone.com"
+                or parsed.path.rstrip("/") != "/jobs"):
+            return None
+        job_id = dict(parse_qsl(parsed.query, keep_blank_values=True)).get("gh_jid", "")
+        return job_id if job_id.isdigit() else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _valid_sentinelone_embed_src(parent_url, iframe_src):
+    """Accept only the matching Greenhouse embed with a live validity token."""
+    job_id = _sentinelone_job_id(parent_url)
+    if not job_id:
+        return False
+    try:
+        parsed = urlsplit(str(iframe_src or ""))
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        return (parsed.scheme == "https"
+                and parsed.hostname == "job-boards.greenhouse.io"
+                and parsed.path == "/embed/job_app"
+                and query.get("token") == job_id
+                and bool(query.get("validityToken")))
+    except (TypeError, ValueError):
+        return False
+
+
+def _redact_greenhouse_validity_token(url):
+    """Prevent short-lived Greenhouse embed tokens leaking into audit files."""
+    try:
+        parsed = urlsplit(str(url or ""))
+        if parsed.hostname != "job-boards.greenhouse.io":
+            return str(url or "")
+        query = [(k, "[REDACTED]" if k == "validityToken" else v)
+                 for k, v in parse_qsl(parsed.query, keep_blank_values=True)]
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path,
+                           urlencode(query), parsed.fragment))
+    except (TypeError, ValueError):
+        return str(url or "")
+
+
+def _navigate_to_application(url, port):
+    """Refresh SentinelOne's expiring embed URL from its public parent page."""
+    job_id = _sentinelone_job_id(url)
+    if not job_id:
+        cdp_ok(port, "goto", b64(url), timeout=120)
+        return
+
+    cdp_ok(port, "goto", b64(url), timeout=120)
+    iframe_src_js = (
+        "(() => { const frame = document.querySelector('#grnhse_iframe'); "
+        "return frame ? frame.src : null; })()")
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        try:
+            src = cdp_ok(port, "evalb64", b64(iframe_src_js), timeout=30).get("result")
+        except Exception:
+            src = None
+        if _valid_sentinelone_embed_src(url, src):
+            cdp_ok(port, "goto", b64(src), timeout=120)
+            return
+        time.sleep(0.5)
+    raise RuntimeError(
+        "could not obtain a fresh matching SentinelOne Greenhouse application iframe")
 
 DUMP_JS = r"""(() => {
   const escQ = s => String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"');
@@ -303,9 +374,10 @@ DUMP_JS = r"""(() => {
 def dump_schema(url, port):
     ensure_driver()
     cdp_ok(port, "reset")
-    cdp_ok(port, "goto", b64(url), timeout=120)
+    _navigate_to_application(url, port)
     r = cdp_ok(port, "evalb64", b64(DUMP_JS), timeout=120)
     schema = r["result"]
+    schema["url"] = _redact_greenhouse_validity_token(schema.get("url", ""))
     scrape_custom_options(port, schema)
     return schema
 

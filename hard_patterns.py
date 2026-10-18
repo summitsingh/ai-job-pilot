@@ -197,6 +197,81 @@ def _select_value_js(input_expr):
             "isMulti: isMulti}; })()")
 
 
+def react_select_commit_js(input_expr, wanted):
+    """Build JS that commits selected option objects through React onChange.
+
+    Greenhouse's select controls can render selected labels without updating
+    the application-level controlled value. Locate the nearest React fiber
+    whose props expose both options and onChange, then pass the actual option
+    object (or option array for a multi-select) rather than a display string.
+    """
+    return ("(() => { const input = " + input_expr + "; " +
+            "if (!input) return {ok:false,why:'input-not-found'}; " +
+            "const fiberKey = Object.keys(input).find(k => k.startsWith('__reactFiber')); " +
+            "if (!fiberKey) return {ok:false,why:'react-fiber-not-found'}; " +
+            "const wanted = " + json.dumps(list(wanted)) + "; " +
+            "const norm = s => String(s == null ? '' : s).trim().toLowerCase(); " +
+            "let fiber = input[fiberKey]; " +
+            "for (; fiber; fiber = fiber.return) { " +
+            "const p = fiber.memoizedProps || {}; " +
+            "if (!Array.isArray(p.options) || typeof p.onChange !== 'function') continue; " +
+            "const flatten = xs => xs.reduce((a, x) => { " +
+            "if (x && Array.isArray(x.options)) return a.concat(flatten(x.options)); " +
+            "a.push(x); return a; }, []); " +
+            "const options = flatten(p.options); " +
+            "const getLabel = p.getOptionLabel || (p.selectProps && p.selectProps.getOptionLabel) || " +
+            "(o => o && (o.label != null ? o.label : o.value)); " +
+            "const selected = wanted.map(w => options.find(o => norm(getLabel(o)) === norm(w))); " +
+            "if (selected.some(o => !o)) return {ok:false,why:'react-option-not-found'}; " +
+            "const multi = !!(p.isMulti || (p.selectProps && p.selectProps.isMulti)); " +
+            "const value = multi ? selected : selected[0]; " +
+            "const name = p.name || (p.selectProps && p.selectProps.name) || undefined; " +
+            "try { p.onChange(value, {action:'select-option', option:selected[0], name:name}); } " +
+            "catch (e) { return {ok:false,why:'react-onchange-threw'}; } " +
+            "return {ok:true,selectedCount:selected.length,multi:multi}; } " +
+            "return {ok:false,why:'react-onchange-not-found'}; })()")
+
+
+def react_select_state_js(input_expr, wanted):
+    """Read back the controlled react-select value without exposing its text."""
+    return ("(() => { const input = " + input_expr + "; " +
+            "if (!input) return {ok:false}; " +
+            "const fiberKey = Object.keys(input).find(k => k.startsWith('__reactFiber')); " +
+            "let fiber = fiberKey && input[fiberKey]; " +
+            "const wanted = " + json.dumps(list(wanted)) + "; " +
+            "const norm = s => String(s == null ? '' : s).trim().toLowerCase(); " +
+            "for (; fiber; fiber = fiber.return) { const p = fiber.memoizedProps || {}; " +
+            "if (!Array.isArray(p.options) || typeof p.onChange !== 'function') continue; " +
+            "const flat = xs => xs.reduce((a,x) => a.concat(x && Array.isArray(x.options) ? flat(x.options) : [x]), []); " +
+            "const options = flat(p.options); " +
+            "const getLabel = p.getOptionLabel || (p.selectProps && p.selectProps.getOptionLabel) || " +
+            "(o => o && (o.label != null ? o.label : o.value)); " +
+            "const valLabel = v => { if (v && typeof v === 'object') return norm(getLabel(v)); " +
+            "const o = options.find(x => String(x.value) === String(v)); return norm(o ? getLabel(o) : v); }; " +
+            "const current = Array.isArray(p.value) ? p.value : (p.value == null || p.value === '' ? [] : [p.value]); " +
+            "const labels = current.map(valLabel); " +
+            "const matches = wanted.every(w => labels.includes(norm(w))) && " +
+            "(p.isMulti || (p.selectProps && p.selectProps.isMulti) ? labels.length === wanted.length : labels.length === 1); " +
+            "return {ok:true,matches:matches,count:labels.length}; } " +
+            "return {ok:false}; })()")
+
+
+def _commit_react_select(port, input_expr, wanted, field_key):
+    result = _eval_js(port, react_select_commit_js(input_expr, wanted))
+    if not isinstance(result, dict) or not result.get("ok"):
+        why = result.get("why", "invalid-result") if isinstance(result, dict) else "no-result"
+        raise RuntimeError(
+            f"react-select controlled value commit failed for key: {field_key} ({why})")
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        state = _eval_js(port, react_select_state_js(input_expr, wanted))
+        if isinstance(state, dict) and state.get("ok") and state.get("matches"):
+            return result
+        time.sleep(0.1)
+    raise RuntimeError(
+        f"react-select controlled value did not persist for key: {field_key}")
+
+
 def _menu_open(port):
     return bool(_eval_js(port, _MENU_OPEN_JS))
 
@@ -294,6 +369,12 @@ def fill_react_select(port, field_key, option_text):
     if _menu_open(port):
         cdp(port, "fkey", "Escape")
     time.sleep(0.5)
+
+    # Commit the selected option object through the controlled React fiber.
+    # Some Greenhouse selects only update their visible label after option
+    # clicks, leaving the parent application state unchanged.
+    _commit_react_select(port, input_expr, wanted, field_key)
+    time.sleep(0.2)
 
     # (f) verify via single-value text or multi-value labels
     ver = _eval_js(port, _select_value_js(input_expr))

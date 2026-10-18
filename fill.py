@@ -32,6 +32,18 @@ from schema_dump import DUMP_JS
 
 TEXT_TYPES = {"text", "email", "tel", "url", "number", "password", "textarea"}
 
+CAPTCHA_PRESENT_JS = r"""(() => {
+  const evidence = [];
+  if (document.querySelector('iframe[src*="recaptcha" i]')) evidence.push('recaptcha-iframe');
+  if (document.querySelector('.g-recaptcha, .grecaptcha-badge, [data-sitekey]'))
+    evidence.push('recaptcha-widget');
+  if (document.querySelector('textarea[name="g-recaptcha-response"], input[name="g-recaptcha-response"]'))
+    evidence.push('recaptcha-response-field');
+  if (document.querySelector('iframe[src*="hcaptcha" i], [data-hcaptcha-widget-id]'))
+    evidence.push('hcaptcha-widget');
+  return {present:evidence.length > 0, evidence:evidence};
+})()"""
+
 
 def pre_submit_blockers(audit_blockers, mismatched, failed_trusted=()):
     """Treat every intended-but-unverified fill as a submit blocker.
@@ -68,9 +80,10 @@ for (const it of items) {
     const desc=Object.getOwnPropertyDescriptor(proto,'value');
     if(desc&&desc.set)desc.set.call(el,it.value);else el.value=it.value;
     // Call React's onChange directly if it exists (React controlled components)
-    const reactKey = Object.keys(el).find(k => k.startsWith('__reactProps') || k.startsWith('__reactInternalInstance') || k.startsWith('__reactFiber'));
-    if (reactKey) {
-      const props = el[reactKey];
+    // React keys have dynamic suffixes like __reactProps$abc123, so match by prefix
+    const reactPropsKey = Object.keys(el).find(k => k.startsWith('__reactProps'));
+    if (reactPropsKey) {
+      const props = el[reactPropsKey];
       if (props && typeof props.onChange === 'function') {
         const event = {
           target: {value: it.value, name: el.name},
@@ -81,10 +94,6 @@ for (const it of items) {
         };
         props.onChange(event);
       }
-    }
-    // Also check for onInput handler
-    if (reactKey) {
-      const props = el[reactKey];
       if (props && typeof props.onInput === 'function') {
         const event = {
           target: {value: it.value, name: el.name},
@@ -962,6 +971,19 @@ def apply_fill(schema, fmap, port, no_submit, shot_path):
         if str(pf.get("note", "")).startswith("trusted-input-fallback-failed:")
     ]
     blockers = pre_submit_blockers(blockers, mismatched, failed_trusted)
+    if not no_submit and not blockers:
+        try:
+            captcha = cdp_ok(port, "evalb64", b64(CAPTCHA_PRESENT_JS),
+                             timeout=60).get("result")
+        except Exception:
+            captcha = None
+        if not isinstance(captcha, dict) or "present" not in captcha:
+            captcha = {"present": True, "evidence": ["captcha-check-failed"]}
+        if captcha.get("present"):
+            blockers.append("captcha-required:human-verification")
+            evidence = ",".join(captcha.get("evidence", [])[:4])
+            notes.append("submission withheld: CAPTCHA/human verification detected"
+                         + (f" ({evidence})" if evidence else ""))
     if blockers:
         notes.append("PRE-SUBMIT BLOCKERS: " + ", ".join(blockers))
 
