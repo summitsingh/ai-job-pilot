@@ -172,7 +172,7 @@ def apply_prev_employed_override(mapped, schema, facts):
         elif f.get("type") == "select":
             groups.setdefault(("select", f["key"]), []).append((e, f))
     for (kind, gid), pairs in groups.items():
-        qlabel = (pairs[0][1].get("label") or "")
+        qlabel = (pairs[0][1].get("question") or pairs[0][1].get("label") or "")
         if not PREV_EMPLOYED_RE.search(qlabel):
             continue
         if not want:
@@ -293,8 +293,9 @@ def build_field_list(schema):
             extra += f" option_label={json.dumps(f['option_label'])}"
         if f.get("option_value"):
             extra += f" option_value={json.dumps(f['option_value'])}"
+        qlabel = f.get("question") or f.get("label") or ""
         lines.append(
-            f"- key={f['key']} type={f['type']} label={json.dumps(f['label'])}"
+            f"- key={f['key']} type={f['type']} label={json.dumps(qlabel)}"
             f" required={str(f.get('required', False)).lower()}{opt_s}{extra}")
     return "\n".join(lines)
 
@@ -564,7 +565,7 @@ def _map_with_model(schema, facts, field_keys):
         if not canon or canon in seen:
             continue
         field = next(f for f in sub["fields"] if f["key"] == canon)
-        label_blob = f"{field.get('label','')} {field.get('key','')} {field.get('option_label','')}"
+        label_blob = f"{field.get('question','')} {field.get('label','')} {field.get('key','')} {field.get('option_label','')}"
         entry = {"field": canon, "action": item.get("action", "skip"),
                  "value": item.get("value", "")}
         if GUARD_RE.search(label_blob) and entry["action"] != "skip":
@@ -596,7 +597,7 @@ def apply_work_auth_overrides(mapped, schema, facts=None):
             groups.setdefault(f["group"], []).append((e, f))
     for g, pairs in groups.items():
         # check if the question matches a known work-auth pattern
-        qlabel = (pairs[0][1].get("label") or "")
+        qlabel = (pairs[0][1].get("question") or pairs[0][1].get("label") or "")
         override = work_auth_override({"label": qlabel}, facts)
         if not override:
             continue

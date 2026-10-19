@@ -958,7 +958,7 @@ PATTERNS = [
     # Yes per facts. Excludes "without sponsorship" phrasing variants.
     ("workauth-authorized",
      re.compile(r"(?:(legally )?authorized to work|have authorization to work|"
-                r"have (?:the )?work authorization)"
+                r"have (?:the )?work authorization|proof of (?:their |your )?legal right to work)"
                 r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))", re.I),
      r_authorized_yes, None),
     ("workauth-employer",
@@ -1113,7 +1113,8 @@ def map_template(schema, facts, ats="unknown"):
     # answers it. Keep guarding the "without sponsorship" variants.
     AUTHORIZED_YES_GUARD_EXC = re.compile(
         r"(?:(legally )?authorized to work|have authorization to work|"
-        r"have (?:the )?work authorization|u\.?s\.?\s+work\s+authorization)"
+        r"have (?:the )?work authorization|proof of (?:their |your )?legal right to work|"
+        r"u\.?s\.?\s+work\s+authorization)"
         r"(?!.*(?:without\s+(?:requiring\s+)?sponsorship|no\s+sponsorship))",
         re.IGNORECASE)
     # Privacy-ack checkboxes have a deterministic answer (acknowledge);
