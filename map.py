@@ -106,10 +106,10 @@ GUARD_RE = re.compile(
 WORK_AUTH_ANSWERS = [
     (re.compile(r"require sponsorship.*employment visa status", re.IGNORECASE),
      "Yes", "sponsorship-required-yes"),
-    (re.compile(r"will you (now or in the future )?require .*sponsor",
+    (re.compile(r"will you (?:now,?\s*or in the future,?\s*)?require .*sponsor",
                 re.IGNORECASE),
      "Yes", "sponsorship-required-yes"),
-    (re.compile(r"do you (currently |now )?(or in the future )?require .*sponsor",
+    (re.compile(r"do you (?:currently,?\s*|now,?\s*)?(?:or in the future,?\s*)?require .*sponsor",
                 re.IGNORECASE),
      "Yes", "sponsorship-required-yes"),
     (re.compile(r"(legally )?(authorized|eligible) to work|legally eligible", re.IGNORECASE),

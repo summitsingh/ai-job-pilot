@@ -479,6 +479,21 @@ class TestMapTemplate(unittest.TestCase):
         self.assertEqual(m["#ref"]["action"], "skip")
         self.assertEqual(m["#ref"].get("guard"), "muse-review")
 
+    def test_comma_phrased_sponsorship_yesno_buttons_answered_yes(self):
+        facts = dict(self.facts, work_authorization="H1B visa, eligible for H1B transfer")
+        label = ("Will you now, or in the future require Second Nature to commence "
+                 "(sponsor) an immigration case in order to employ you?")
+        schema = {"fields": [
+            {"key": "[data-field-path=\"sp\"] [data-option=\"yes\"]",
+             "label": label, "type": "yesno-button", "options": ["yes"], "value": "Yes"},
+            {"key": "[data-field-path=\"sp\"] [data-option=\"no\"]",
+             "label": label, "type": "yesno-button", "options": ["no"], "value": "No"},
+        ]}
+        m = mapped(map_template(schema, facts, "ashby"))
+        self.assertEqual(m["[data-field-path=\"sp\"] [data-option=\"yes\"]"]["action"], "click")
+        self.assertNotIn("guard", m["[data-field-path=\"sp\"] [data-option=\"yes\"]"])
+        self.assertEqual(m["[data-field-path=\"sp\"] [data-option=\"no\"]"]["action"], "skip")
+
 
 class TestMatches(unittest.TestCase):
     def test_case_insensitive(self):

@@ -948,7 +948,7 @@ PATTERNS = [
     # sponsorship-required work auth (Indeed truncated phrasing) -> pick the
     # truthful sponsorship option, never plain "Yes"
     ("workauth-sponsorship",
-     re.compile(r"sponsorship in the future|will require sponsorship|need.*sponsorship|require.*sponsorship", re.I),
+     re.compile(r"sponsorship in the future|will require sponsorship|need.*sponsor|require.*sponsor", re.I),
      r_sponsorship, None),
     # identity verification upon hire -> Yes
     ("verify-identity",
@@ -1105,7 +1105,7 @@ def map_template(schema, facts, ats="unknown"):
     SPONSORSHIP_OPT_GUARD_EXC = re.compile(
         r"will require sponsorship|sponsorship in the future|"
         r"will require .*sponsor|require employment visa sponsorship|"
-        r"require.*sponsors|future.*sponsor", re.IGNORECASE)
+        r"require.*sponsor|future.*sponsor", re.IGNORECASE)
     SMS_CONSENT_GUARD_EXC = re.compile(
         r"via sms|sms.*application|message and data rates", re.IGNORECASE)
     # "Legally authorized to work" has a deterministic facts-driven answer
