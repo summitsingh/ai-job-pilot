@@ -624,7 +624,7 @@ def matches(expected, actual):
     return e == a or e in a or a in e
 
 
-TRUSTED_TEXT_TYPES = {"text", "email", "tel", "url", "textarea"}
+TRUSTED_TEXT_TYPES = {"text", "email", "tel", "url", "number", "textarea"}
 
 
 def retry_mismatched_text(port, text_items, by_key, always_type=False):
