@@ -252,6 +252,80 @@ SuccessFactors are out of scope (account-walled flows).
 for a queue, or the lane operation (`lane_greenhouse.py` + `sweep.py` +
 `tracker.py`) for continuous volume with cross-lane claim dedup.
 
+## Resume tailoring, interview follow-ups, and prep podcasts
+
+### Resume tailoring
+
+Install the PDF dependency with `pip install fpdf2`, or install the package
+and its runtime dependency with `pip install .`. Try the fictional sample:
+
+```bash
+python3 resume_tailor.py profiles
+python3 resume_tailor.py build --base examples/sample_resume.json --profile platform --out /tmp/resume-platform.pdf
+python3 resume_tailor.py build --base examples/sample_resume.json --jd job-description.txt --out /tmp/resume-jd.pdf
+python3 resume_tailor.py build --base examples/sample_resume.json --profile observability --out /tmp/letter.pdf --cover-letter --company "Quartz Analytics" --event-note "I met the team at a community demo night and enjoyed the platform talk."
+python3 resume_tailor.py check --pdf /tmp/resume-platform.pdf --base examples/sample_resume.json
+```
+
+For the `--jd` command, save the target job description as
+`job-description.txt` first. Expected output is a one-page PDF plus a
+printed QA report with `PASS` lines for `pages`, `text`, `links`,
+`truthfulness`, and `pii`.
+
+The base resume schema contains `name`, `location`, `phone`, `email`,
+`links` with `label` and `url`, `summaries` keyed by profile, `skills`
+categories, `projects` with `url`, `tags`, and `bullets`, `experience`
+with tagged bullets, `publications`, `education`, `certifications`, and
+`awards`. JSON is supported; YAML is also accepted when PyYAML is installed.
+
+To add a profile, add an entry to `resume_profiles.json` with `summary`,
+`skill_order`, `project_order`, `emphasis_tags`, and `keywords`. The
+`summary` value must be a key in the base file's `summaries`.
+Profiles contain no resume text.
+
+Tailoring reorders and emphasizes existing facts only; it never invents
+experience, employers, dates, titles, metrics, or technologies. Every
+build runs a QA gate that fails on: not exactly one page, missing
+extractable text, missing or malformed link annotations, any rendered
+text not present in the base data, or any term from an optional
+`--pii-file` denylist.
+
+The public repo ships fictional sample data only. Keep your real base
+resume file under the gitignored `resumes/` directory and keep
+`interviews.json` out of git; both paths are covered by gitignore
+patterns. The same privacy rules as `facts.json` apply: never commit
+private data or paste it into logs, issues, or chat beyond what the task
+needs.
+
+### Interview follow-up tracker
+
+```bash
+python3 interview_tracker.py --store interviews.json log --company "Quartz Analytics" --role "Senior Platform Engineer" --round "Hiring manager" --date 2026-10-20 --contact "Jordan Lee"
+python3 interview_tracker.py --store interviews.json due
+python3 interview_tracker.py --store interviews.json outcome --id <id> --set rejected
+```
+
+Replace `<id>` with the ID returned by `log`. After an interview, `due`
+reminds you to send a thank-you note until the outcome is marked
+`thanked`. After a rejection that followed an interview, it reminds you
+to ask for feedback until marked `feedback_requested`. Use `outcome`
+with `--set thanked` or `--set feedback_requested` to record those
+actions. A rejection logged with `reject-application`, where no interview
+happened, never triggers the feedback reminder.
+
+### Prep podcasts
+
+```bash
+python3 prep_podcast.py build --brief examples/sample_prep_brief.json --out-dir /tmp/prep-demo
+```
+
+This writes `script.txt` and `manifest.json`. The manifest includes the
+title, hosts, turn count, word count, and estimated duration at 150 wpm.
+Audio is rendered only when a local `espeak` or `espeak-ng` binary is
+available and `--tts espeak` is passed. Otherwise the manifest records
+audio as `null` with the note "TTS not configured; script only". Briefs
+may be JSON or Markdown using `##` headings and `-` bullets.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The rules that matter: never

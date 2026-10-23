@@ -63,3 +63,8 @@ prompts/*.log
 config.json
 model_telemetry.jsonl
 dist/
+
+# Interview tracker local store
+interviews.json
+# Generated resumes and prep podcast output
+prep-output/
