@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Deterministic, low-token autofill for ATS job application forms"
 readme = "README.md"
 requires-python = ">=3.9"
+dependencies = ["fpdf2>=2.7"]
 license = { text = "MIT" }
 authors = [{ name = "Summit Singh Thakur" }]
 keywords = ["ats", "greenhouse", "ashby", "lever", "job-application", "autofill"]
@@ -29,6 +30,9 @@ ai-job-pilot-setup = "setup_wizard:main"
 ai-job-pilot-queue = "job_queue:main"
 ai-job-pilot-scoreboard = "scoreboard:main"
 ai-job-pilot-analytics = "analytics:main"
+ai-job-pilot-tailor = "resume_tailor:main"
+ai-job-pilot-interviews = "interview_tracker:main"
+ai-job-pilot-prep-podcast = "prep_podcast:main"
 
 [project.urls]
 Homepage = "https://github.com/summitsingh/ai-job-pilot"
@@ -69,4 +73,7 @@ py-modules = [
     "scoreboard",
     "analytics",
     "terminal_output",
+    "resume_tailor",
+    "interview_tracker",
+    "prep_podcast",
 ]
