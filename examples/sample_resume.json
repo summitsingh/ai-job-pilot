@@ -1,0 +1,68 @@
+{
+  "name": "Alex Rivera",
+  "location": "Portland, OR",
+  "phone": "555-010-2233",
+  "email": "alex.rivera@example.com",
+  "links": {
+    "website": {"label": "Website", "url": "https://alexrivera.example.com"},
+    "linkedin": {"label": "LinkedIn", "url": "https://www.linkedin.com/in/alexrivera-example"},
+    "github": {"label": "GitHub", "url": "https://github.com/alexrivera-example"}
+  },
+  "summaries": {
+    "default": "Platform engineer building dependable services, practical automation, and clear operating documentation for small engineering teams.",
+    "platform": "Platform engineer focused on dependable service delivery, repeatable infrastructure, and practical developer tooling. Connects operational experience with automation and clear team playbooks.",
+    "observability": "Platform engineer focused on service telemetry, actionable alerts, and incident learning. Builds instrumentation and operating playbooks that help teams understand production behavior."
+  },
+  "skills": [
+    {"category": "Languages", "items": ["Python", "SQL", "Shell", "JavaScript"]},
+    {"category": "Platform", "items": ["Linux", "Containers", "DNS", "Service networking"]},
+    {"category": "Automation", "items": ["Infrastructure templates", "Release pipelines", "Configuration validation"]},
+    {"category": "Observability", "items": ["Metrics", "Structured logging", "Distributed tracing", "Alert design"]},
+    {"category": "Collaboration", "items": ["Incident reviews", "Runbooks", "Technical mentoring"]}
+  ],
+  "projects": [
+    {
+      "name": "Beacon DNS", "meta": "Service tooling | 2025", "url": "https://beacondns.example.com",
+      "tags": ["platform", "automation"],
+      "bullets": [
+        "Built a DNS configuration validator with previewable changes and repeatable local checks before service rollout.",
+        "Documented recovery procedures and test fixtures for malformed records, timeouts, and configuration drift."
+      ]
+    },
+    {
+      "name": "PhotoSort", "meta": "Personal project | 2024", "url": "https://github.com/alexrivera-example/photosort",
+      "tags": ["observability", "telemetry"],
+      "bullets": [
+        "Created a local photo organizer with resumable processing, structured event logs, and a reviewable change manifest.",
+        "Added timing metrics and failure summaries to make large collection imports easier to diagnose."
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "org": "Northwind Systems", "location": "Portland, OR", "title": "Senior Platform Engineer", "dates": "2023 - Present",
+      "tags": ["platform", "observability"],
+      "bullets": [
+        {"text": "Standardized service deployment templates with automated configuration checks and documented rollback procedures.", "tags": ["platform", "automation"]},
+        {"text": "Introduced service telemetry reviews that connected alert thresholds to user impact and incident follow-up work.", "tags": ["observability", "telemetry"]},
+        {"text": "Built a shared release checklist and rehearsed recovery workflows with application teams before major launches.", "tags": ["reliability", "platform"]},
+        {"text": "Mentored engineers through incident reviews and translated recurring operational questions into reusable runbooks.", "tags": ["reliability"]}
+      ]
+    },
+    {
+      "org": "Cascade Labs", "location": "Portland, OR", "title": "Platform Engineer", "dates": "2020 - 2023",
+      "tags": ["platform", "automation"],
+      "bullets": [
+        {"text": "Automated environment setup and validation so developers could reproduce service dependencies on local machines.", "tags": ["automation", "platform"]},
+        {"text": "Instrumented background workers with structured logs and queue timing metrics for production troubleshooting.", "tags": ["observability", "telemetry"]},
+        {"text": "Maintained service ownership records and paired with engineers to improve operational handoffs during releases.", "tags": ["reliability"]}
+      ]
+    }
+  ],
+  "publications": [
+    {"title": "Operating Playbooks for Small Platforms", "venue": "Journal of Cloud Practice", "url": "https://jcp.example.com/articles/operating-playbooks"}
+  ],
+  "education": ["Independent study in distributed systems, networking, and software engineering"],
+  "certifications": ["Northwind Systems Internal Platform Readiness Certificate, 2024"],
+  "awards": ["Cascade Labs Team Reliability Award, 2022"]
+}

@@ -1,0 +1,16 @@
+{
+  "platform": {
+    "summary": "platform",
+    "skill_order": ["Platform", "Automation", "Languages", "Observability", "Collaboration"],
+    "project_order": ["Beacon DNS", "PhotoSort"],
+    "emphasis_tags": ["platform", "automation", "reliability"],
+    "keywords": ["platform", "automation", "beacon", "northwind"]
+  },
+  "observability": {
+    "summary": "observability",
+    "skill_order": ["Observability", "Languages", "Platform", "Automation", "Collaboration"],
+    "project_order": ["PhotoSort", "Beacon DNS"],
+    "emphasis_tags": ["observability", "telemetry", "reliability"],
+    "keywords": ["observability", "telemetry", "photosort", "cascade"]
+  }
+}
