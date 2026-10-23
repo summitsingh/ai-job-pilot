@@ -1,0 +1,23 @@
+{
+  "title": "Platform Interview Practice",
+  "candidate": "Alex Rivera",
+  "company": "Quartz Analytics",
+  "role": "Senior Platform Engineer",
+  "hosts": ["Sam", "Priya"],
+  "sections": [
+    {"heading": "Round structure", "points": [
+      "Practice a fictional architecture discussion about a batch reporting service.",
+      "Prepare questions about the team's on-call handoff and release review process."
+    ]},
+    {"heading": "Story bank", "points": [
+      "Review the Beacon DNS configuration validation story.",
+      "Describe how PhotoSort makes failed imports visible through structured logs.",
+      "Rehearse an incident review example from Northwind Systems."
+    ]},
+    {"heading": "Study topics", "points": [
+      "Review DNS caching, timeouts, and safe retry behavior.",
+      "Sketch a metrics and alerting plan for an imaginary worker queue.",
+      "Practice explaining a reversible rollout and its validation checks."
+    ]}
+  ]
+}
